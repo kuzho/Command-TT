@@ -1,0 +1,281 @@
+{
+  "name": "command-tt",
+  "displayName": "Command TT",
+  "publisher": "kuzho",
+  "author": "Hector Cordero",
+  "description": "Send terminal commands with variables",
+  "icon": "resources/marketplace-icon.png",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kuzho/Command-TT.git"
+  },
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:commandTTVariables",
+    "onView:commandTTCommands",
+    "onCommand:commandTT.addVariable",
+    "onCommand:commandTT.editVariable",
+    "onCommand:commandTT.removeVariable",
+    "onCommand:commandTT.addCommand",
+    "onCommand:commandTT.editCommand",
+    "onCommand:commandTT.removeCommand",
+    "onCommand:commandTT.runCommand"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "commandTT.addVariable",
+        "title": "Add Variable",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/add.light.svg",
+          "dark": "resources/icons/add.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.editVariable",
+        "title": "Edit Variable",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/edit.light.svg",
+          "dark": "resources/icons/edit.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.removeVariable",
+        "title": "Remove Variable",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/delete.light.svg",
+          "dark": "resources/icons/delete.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.addCommand",
+        "title": "Add Command",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/add.light.svg",
+          "dark": "resources/icons/add.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.editCommand",
+        "title": "Edit Command",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/edit.light.svg",
+          "dark": "resources/icons/edit.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.removeCommand",
+        "title": "Remove Command",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/delete.light.svg",
+          "dark": "resources/icons/delete.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.runCommand",
+        "title": "Run Command",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/run.light.svg",
+          "dark": "resources/icons/run.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.refreshVariables",
+        "title": "Refresh Variables",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/refresh.light.svg",
+          "dark": "resources/icons/refresh.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.refreshCommands",
+        "title": "Refresh Commands",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/refresh.light.svg",
+          "dark": "resources/icons/refresh.dark.svg"
+        }
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "commandTT",
+          "title": "Command TT",
+          "icon": "resources/command-tt-futura.svg"
+        }
+      ]
+    },
+    "views": {
+      "commandTT": [
+        {
+          "id": "commandTTCommands",
+          "name": "Commands"
+        },
+        {
+          "id": "commandTTVariables",
+          "name": "Variables"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "commandTT.addVariable",
+          "when": "view == commandTTVariables",
+          "group": "navigation"
+        },
+        {
+          "command": "commandTT.addCommand",
+          "when": "view == commandTTCommands",
+          "group": "navigation"
+        },
+        {
+          "command": "commandTT.refreshVariables",
+          "when": "view == commandTTVariables",
+          "group": "navigation"
+        },
+        {
+          "command": "commandTT.refreshCommands",
+          "when": "view == commandTTCommands",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "commandTT.runCommand",
+          "when": "view == commandTTCommands && viewItem == commandItem",
+          "group": "inline"
+        },
+        {
+          "command": "commandTT.editCommand",
+          "when": "view == commandTTCommands && viewItem == commandItem",
+          "group": "inline"
+        },
+        {
+          "command": "commandTT.removeCommand",
+          "when": "view == commandTTCommands && viewItem == commandItem",
+          "group": "inline"
+        },
+        {
+          "command": "commandTT.editVariable",
+          "when": "view == commandTTVariables && viewItem == variableItem",
+          "group": "inline"
+        },
+        {
+          "command": "commandTT.removeVariable",
+          "when": "view == commandTTVariables && viewItem == variableItem",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Command TT",
+      "properties": {
+        "commandTT.commandIconColor": {
+          "type": "string",
+          "default": "terminal.ansiCyan",
+          "description": "Theme color id used for command icons in the Commands view (e.g. terminal.ansiCyan, terminal.ansiGreen, foreground)."
+        },
+        "commandTT.sendNewLine": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send Enter after the command is sent to the terminal."
+        },
+        "commandTT.variables": {
+          "type": "array",
+          "default": [],
+          "description": "List of variables available for substitution.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ]
+          }
+        },
+        "commandTT.commands": {
+          "type": "array",
+          "default": [],
+          "description": "List of saved commands.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "group": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "icon": {
+                "type": "string"
+              },
+              "iconColor": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "command"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "build": "npm run package && npm run vsix",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "vsix": "cross-env NODE_OPTIONS=--no-deprecation vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/vscode": "^1.109.0",
+    "@vscode/vsce": "^2.26.1",
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.27.2",
+    "eslint": "^9.39.2",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0"
+  }
+}
