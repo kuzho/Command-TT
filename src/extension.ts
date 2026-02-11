@@ -13,7 +13,10 @@ type CommandDefinition = {
 	description?: string;
 	icon?: string;
 	iconColor?: string;
+	sendNewLine?: boolean;
 };
+
+type SortOrder = 'settings' | 'alphabetical';
 
 const CONFIG_SECTION = 'commandTT';
 const DEFAULT_GROUP = 'Ungrouped';
@@ -36,9 +39,10 @@ class VariableItem extends vscode.TreeItem {
 class CommandGroupItem extends vscode.TreeItem {
 	public readonly path: string;
 
-	constructor(label: string, path: string) {
-		super(label, vscode.TreeItemCollapsibleState.Collapsed);
+	constructor(label: string, path: string, state: vscode.TreeItemCollapsibleState) {
+		super(label, state);
 		this.path = path;
+		this.id = path;
 		this.contextValue = 'commandGroup';
 		this.iconPath = new vscode.ThemeIcon('folder');
 	}
@@ -76,15 +80,18 @@ class VariablesProvider implements vscode.TreeDataProvider<VariableItem> {
 
 	getChildren(): VariableItem[] {
 		const variables = getVariables();
-		return variables
-			.sort((a, b) => a.name.localeCompare(b.name))
-			.map((variable) => new VariableItem(variable));
+		const ordered = shouldSortAlphabetically()
+			? [...variables].sort((a, b) => a.name.localeCompare(b.name))
+			: variables;
+		return ordered.map((variable) => new VariableItem(variable));
 	}
 }
 
 class CommandsProvider implements vscode.TreeDataProvider<CommandGroupItem | CommandItem> {
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<CommandGroupItem | CommandItem | undefined>();
 	readonly onDidChangeTreeData = this.onDidChangeEmitter.event;
+
+	constructor(private readonly expandedGroups: Set<string>) {}
 
 	refresh(): void {
 		this.onDidChangeEmitter.fire(undefined);
@@ -96,12 +103,16 @@ class CommandsProvider implements vscode.TreeDataProvider<CommandGroupItem | Com
 
 	getChildren(element?: CommandGroupItem): Array<CommandGroupItem | CommandItem> {
 		const commands = getCommands();
-		const tree = buildCommandTree(commands);
+		const tree = buildCommandTree(commands, shouldSortAlphabetically());
 
 		if (!element) {
-			return tree.groups
-				.sort((a, b) => a.label.localeCompare(b.label))
-				.map((group) => new CommandGroupItem(group.label, group.path));
+			return tree.groups.map((group) =>
+				new CommandGroupItem(
+					group.label,
+					group.path,
+					getGroupState(group.path, this.expandedGroups)
+				)
+			);
 		}
 
 		const node = findGroupNode(tree, element.path);
@@ -111,19 +122,34 @@ class CommandsProvider implements vscode.TreeDataProvider<CommandGroupItem | Com
 
 		const children: Array<CommandGroupItem | CommandItem> = [];
 		for (const group of node.groups) {
-			children.push(new CommandGroupItem(group.label, group.path));
+			children.push(
+				new CommandGroupItem(group.label, group.path, getGroupState(group.path, this.expandedGroups))
+			);
 		}
 		for (const command of node.commands) {
 			children.push(new CommandItem(command));
 		}
 
-		return children
-			.sort((a, b) => getLabelText(a.label)?.localeCompare(getLabelText(b.label) ?? '') ?? 0);
+		return children;
 	}
 }
 
 function getConfig(): vscode.WorkspaceConfiguration {
 	return vscode.workspace.getConfiguration(CONFIG_SECTION);
+}
+
+function getGroupState(path: string, expandedGroups: Set<string>): vscode.TreeItemCollapsibleState {
+	return expandedGroups.has(path)
+		? vscode.TreeItemCollapsibleState.Expanded
+		: vscode.TreeItemCollapsibleState.Collapsed;
+}
+
+function getSortOrder(): SortOrder {
+	return getConfig().get<SortOrder>('sortOrder', 'settings');
+}
+
+function shouldSortAlphabetically(): boolean {
+	return getSortOrder() === 'alphabetical';
 }
 
 function getCommandIconColor(override?: string): vscode.ThemeColor | undefined {
@@ -150,7 +176,7 @@ type CommandGroupNode = {
 	commands: CommandDefinition[];
 };
 
-function buildCommandTree(commands: CommandDefinition[]): CommandGroupNode {
+function buildCommandTree(commands: CommandDefinition[], sortAlphabetically: boolean): CommandGroupNode {
 	const root: CommandGroupNode = { label: '', path: '', groups: [], commands: [] };
 
 	for (const command of commands) {
@@ -175,15 +201,17 @@ function buildCommandTree(commands: CommandDefinition[]): CommandGroupNode {
 		current.commands.push(command);
 	}
 
-	const sortNode = (node: CommandGroupNode): void => {
-		node.groups.sort((a, b) => a.label.localeCompare(b.label));
-		node.commands.sort((a, b) => a.title.localeCompare(b.title));
-		for (const child of node.groups) {
+	if (sortAlphabetically) {
+		const sortNode = (node: CommandGroupNode): void => {
+			node.groups.sort((a, b) => a.label.localeCompare(b.label));
+			node.commands.sort((a, b) => a.title.localeCompare(b.title));
+			for (const child of node.groups) {
+				sortNode(child);
+			}
+		};
+		for (const child of root.groups) {
 			sortNode(child);
 		}
-	};
-	for (const child of root.groups) {
-		sortNode(child);
 	}
 
 	return root;
@@ -266,7 +294,7 @@ async function runCommand(definition: CommandDefinition): Promise<void> {
 		return;
 	}
 
-	const sendNewLine = getConfig().get<boolean>('sendNewLine', true);
+	const sendNewLine = definition.sendNewLine ?? true;
 	const terminal = getActiveTerminal();
 	if (!terminal) {
 		await vscode.window.showErrorMessage('No active terminal found.');
@@ -370,7 +398,8 @@ async function promptForCommand(existing?: CommandDefinition): Promise<CommandDe
 		group: group.trim() || undefined,
 		description: description.trim() || undefined,
 		icon: icon.trim() || undefined,
-		iconColor: iconColor.trim() || undefined
+		iconColor: iconColor.trim() || undefined,
+		sendNewLine: existing?.sendNewLine
 	};
 }
 
@@ -413,13 +442,22 @@ async function pickCommand(): Promise<CommandDefinition | undefined> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+	const expandedGroups = new Set<string>(
+		context.globalState.get<string[]>('commandTT.expandedGroups', [])
+	);
 
 	const variablesProvider = new VariablesProvider();
-	const commandsProvider = new CommandsProvider();
+	const commandsProvider = new CommandsProvider(expandedGroups);
+	const variablesTreeView = vscode.window.createTreeView('commandTTVariables', {
+		treeDataProvider: variablesProvider
+	});
+	const commandsTreeView = vscode.window.createTreeView('commandTTCommands', {
+		treeDataProvider: commandsProvider
+	});
 
 	context.subscriptions.push(
-		vscode.window.createTreeView('commandTTVariables', { treeDataProvider: variablesProvider }),
-		vscode.window.createTreeView('commandTTCommands', { treeDataProvider: commandsProvider }),
+		variablesTreeView,
+		commandsTreeView,
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if (event.affectsConfiguration(CONFIG_SECTION)) {
 				variablesProvider.refresh();
@@ -530,6 +568,27 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			await runCommand(definition);
+		})
+	);
+
+	const persistExpandedGroups = (): void => {
+		void context.globalState.update('commandTT.expandedGroups', Array.from(expandedGroups));
+	};
+
+	context.subscriptions.push(
+		commandsTreeView.onDidExpandElement((event) => {
+			const group = event.element;
+			if (group instanceof CommandGroupItem) {
+				expandedGroups.add(group.path);
+				persistExpandedGroups();
+			}
+		}),
+		commandsTreeView.onDidCollapseElement((event) => {
+			const group = event.element;
+			if (group instanceof CommandGroupItem) {
+				expandedGroups.delete(group.path);
+				persistExpandedGroups();
+			}
 		})
 	);
 }

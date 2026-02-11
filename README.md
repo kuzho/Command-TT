@@ -11,7 +11,7 @@ Send terminal commands with variables from two dedicated panels in VS Code.
 - Variable substitution inside commands (ping ${host})
 - Friendly error when a variable is missing
 - Per-command icon and per-command iconColor, plus a global default icon color
-- Optional Enter key sending controlled by a setting
+- Optional Enter key sending controlled per command
 - Refresh buttons for Commands and Variables
 - All data stored in user settings JSON
 
@@ -36,7 +36,6 @@ Refresh Commands and Variables views.
 ## Extension Settings
 
 - commandTT.commandIconColor: Theme color id for command icons (default terminal.ansiCyan).
-- commandTT.sendNewLine: Send Enter after each command (default true).
 - commandTT.variables: Array of variable definitions.
 - commandTT.commands: Array of command definitions.
 
@@ -60,7 +59,8 @@ Example commands:
     "group": "Ops/Network",
     "description": "Ping current host",
     "icon": "terminal",
-    "iconColor": "terminal.ansiGreen"
+    "iconColor": "terminal.ansiGreen",
+    "sendNewLine": true
   }
 ]
 ```

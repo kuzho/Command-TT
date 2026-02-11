@@ -5,7 +5,7 @@
   "author": "Hector Cordero",
   "description": "Send terminal commands with variables",
   "icon": "resources/marketplace-icon.png",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/kuzho/Command-TT.git"
@@ -192,10 +192,14 @@
           "default": "terminal.ansiCyan",
           "description": "Theme color id used for command icons in the Commands view (e.g. terminal.ansiCyan, terminal.ansiGreen, foreground)."
         },
-        "commandTT.sendNewLine": {
-          "type": "boolean",
-          "default": true,
-          "description": "Send Enter after the command is sent to the terminal."
+        "commandTT.sortOrder": {
+          "type": "string",
+          "enum": [
+            "settings",
+            "alphabetical"
+          ],
+          "default": "settings",
+          "description": "Order items in the tree views based on the settings.json order or alphabetically."
         },
         "commandTT.variables": {
           "type": "array",
@@ -244,6 +248,11 @@
               },
               "iconColor": {
                 "type": "string"
+              },
+              "sendNewLine": {
+                "type": "boolean",
+                "default": true,
+                "description": "Send Enter after this command is sent to the terminal."
               }
             },
             "required": [

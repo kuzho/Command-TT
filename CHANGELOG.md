@@ -1,5 +1,9 @@
 # Change Log
 
+## [0.0.2] - 2026-02-10
+
+- Send Enter setting is now per command via sendNewLine (defaults to true).
+
 ## [0.0.1] - 2026-02-09
 
 - Commands view appears above Variables.

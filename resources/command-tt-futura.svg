@@ -1,7 +1,10 @@
 <svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <rect x="16" y="22" width="96" height="84" rx="14" fill="none" stroke="currentColor" stroke-width="10"/>
-  <path d="M40 62 L56 48 L60 52 L50 62 L60 72 L56 76 Z" fill="currentColor"/>
-  <rect x="66" y="68" width="32" height="8" rx="4" fill="currentColor"/>
-  <path d="M82 34 L98 34 L106 42 L106 58" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
-  <circle cx="106" cy="58" r="5" fill="currentColor"/>
+  <g fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 26 H14 V102 H24" />
+    <path d="M104 26 H114 V102 H104" />
+  </g>
+  <g fill="currentColor" transform="translate(22 42) scale(1.45)">
+    <polygon points="0,12 18,24 18,18 8,12 18,6 18,0" />
+    <rect x="28" y="18" width="28" height="8" rx="4" />
+  </g>
 </svg>
