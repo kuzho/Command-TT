@@ -273,8 +273,6 @@ async function substituteVariables(text: string, variables: VariableDefinition[]
 	const variablesToReplace = new Map<string, string>();
 
 	const matches = Array.from(text.matchAll(/\$\{([A-Za-z0-9_-]+)\}/g));
-	outputChannel?.show(true);
-	outputChannel?.appendLine(`substituteVariables - matches found: ${matches.map(m => m[1]).join(', ')}`);
 	
 	for (const match of matches) {
 		const name = match[1];
@@ -283,7 +281,6 @@ async function substituteVariables(text: string, variables: VariableDefinition[]
 		}
 
 		const variable = getVariableByName(name, variables);
-		outputChannel?.appendLine(`Variable "${name}": ${JSON.stringify(variable)}`);
 		
 		if (!variable) {
 			missing.add(name);
@@ -292,12 +289,10 @@ async function substituteVariables(text: string, variables: VariableDefinition[]
 
 		let value: string | undefined;
 		if (variable.options && variable.options.length > 0) {
-			outputChannel?.appendLine(`Showing quick pick for "${name}" with options: ${variable.options?.join(', ')}`);
 			const selected = await vscode.window.showQuickPick(variable.options, {
 				placeHolder: `Select value for ${name}`,
 				title: `Choose ${name}`
 			});
-			outputChannel?.appendLine(`Selected value for "${name}": ${selected}`);
 			value = selected;
 		} else {
 			value = variable.value;
@@ -315,7 +310,6 @@ async function substituteVariables(text: string, variables: VariableDefinition[]
 		result = result.replace(new RegExp(`\\$\\{${name}\\}`, 'g'), value);
 	}
 
-	outputChannel?.appendLine(`substituteVariables - final result: ${result}`);
 	return { result, missing: Array.from(missing) };
 }
 

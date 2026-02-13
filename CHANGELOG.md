@@ -1,5 +1,10 @@
 # Change Log
 
+## [0.0.4] - 2026-02-12
+
+### Fixed
+- Removed debug output from variable substitution process.
+
 ## [0.0.3] - 2026-02-12
 
 ### Added
