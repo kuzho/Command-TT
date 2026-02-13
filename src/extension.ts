@@ -500,8 +500,6 @@ async function pickCommand(): Promise<CommandDefinition | undefined> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	vscode.window.showInformationMessage('Command TT: activated (temporary)');
-
 	const expandedGroups = new Set<string>(
 		context.globalState.get<string[]>('commandTT.expandedGroups', [])
 	);
