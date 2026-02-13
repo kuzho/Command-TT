@@ -5,7 +5,7 @@
   "author": "Hector Cordero",
   "description": "Send terminal commands with variables",
   "icon": "resources/marketplace-icon.png",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "repository": {
     "type": "git",
     "url": "https://github.com/kuzho/Command-TT.git"
@@ -216,6 +216,13 @@
               },
               "description": {
                 "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Array of selectable options for this variable. If provided, user will be prompted to choose one."
               }
             },
             "required": [

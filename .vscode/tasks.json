@@ -21,7 +21,6 @@
             "type": "npm",
             "script": "watch:esbuild",
             "group": "build",
-            "problemMatcher": "$esbuild-watch",
             "isBackground": true,
             "label": "npm: watch:esbuild",
             "presentation": {
@@ -29,7 +28,7 @@
                 "reveal": "never"
             }
         },
-		{
+        {
             "type": "npm",
             "script": "watch:tsc",
             "group": "build",
@@ -40,7 +39,6 @@
                 "group": "watch",
                 "reveal": "never"
             }
-        },
-		
+        }
 	]
 }

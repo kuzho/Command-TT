@@ -15,7 +15,8 @@
 			"outFiles": [
 				"${workspaceFolder}/dist/**/*.js"
 			],
-			"preLaunchTask": "${defaultBuildTask}"
+			// removed preLaunchTask for debugging convenience so the Extension Development Host
+			// opens even if the build/watch task isn't running. Re-enable if you want automatic build.
 		}
 	]
 }

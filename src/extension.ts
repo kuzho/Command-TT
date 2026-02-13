@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 
+let outputChannel: vscode.OutputChannel | undefined;
+
 type VariableDefinition = {
 	name: string;
 	value: string;
 	description?: string;
+	options?: string[];
 };
 
 type CommandDefinition = {
@@ -29,8 +32,11 @@ class VariableItem extends vscode.TreeItem {
 		super(`\${${definition.name}}`, vscode.TreeItemCollapsibleState.None);
 		this.definition = definition;
 		this.id = definition.name;
-		this.description = `= ${definition.value}`;
-		this.tooltip = definition.description || `${definition.name}: ${definition.value}`;
+		const hasOptions = definition.options && definition.options.length > 0;
+		const displayValue = hasOptions ? `[select: ${definition.options!.join(', ')}]` : definition.value;
+		this.description = `= ${displayValue}`;
+		const tooltipValue = hasOptions ? `Options: ${definition.options!.join(', ')}` : definition.value;
+		this.tooltip = definition.description ? `${definition.description} (${tooltipValue})` : tooltipValue;
 		this.contextValue = 'variableItem';
 		this.iconPath = new vscode.ThemeIcon('symbol-variable');
 	}
@@ -54,6 +60,7 @@ class CommandItem extends vscode.TreeItem {
 	constructor(definition: CommandDefinition) {
 		super(definition.title, vscode.TreeItemCollapsibleState.None);
 		this.definition = definition;
+		this.id = definition.title;
 		this.description = definition.command;
 		this.tooltip = definition.description || definition.command;
 		this.contextValue = 'commandItem';
@@ -257,26 +264,58 @@ function getVariableNameFromItem(item?: vscode.TreeItem & { definition?: Variabl
 	return match ? match[1] : label;
 }
 
-function buildVariableMap(variables: VariableDefinition[]): Map<string, string> {
-	const map = new Map<string, string>();
-	for (const variable of variables) {
-		map.set(variable.name, variable.value);
-	}
-	return map;
+function getVariableByName(name: string, variables: VariableDefinition[]): VariableDefinition | undefined {
+	return variables.find((v) => v.name === name);
 }
 
-function substituteVariables(text: string, variables: VariableDefinition[]): { result: string; missing: string[] } {
-	const variableMap = buildVariableMap(variables);
+async function substituteVariables(text: string, variables: VariableDefinition[]): Promise<{ result: string; missing: string[] }> {
 	const missing = new Set<string>();
-	const result = text.replace(/\$\{([A-Za-z0-9_-]+)\}/g, (_, name: string) => {
-		const value = variableMap.get(name);
+	const variablesToReplace = new Map<string, string>();
+
+	const matches = Array.from(text.matchAll(/\$\{([A-Za-z0-9_-]+)\}/g));
+	outputChannel?.show(true);
+	outputChannel?.appendLine(`substituteVariables - matches found: ${matches.map(m => m[1]).join(', ')}`);
+	
+	for (const match of matches) {
+		const name = match[1];
+		if (variablesToReplace.has(name)) {
+			continue;
+		}
+
+		const variable = getVariableByName(name, variables);
+		outputChannel?.appendLine(`Variable "${name}": ${JSON.stringify(variable)}`);
+		
+		if (!variable) {
+			missing.add(name);
+			continue;
+		}
+
+		let value: string | undefined;
+		if (variable.options && variable.options.length > 0) {
+			outputChannel?.appendLine(`Showing quick pick for "${name}" with options: ${variable.options?.join(', ')}`);
+			const selected = await vscode.window.showQuickPick(variable.options, {
+				placeHolder: `Select value for ${name}`,
+				title: `Choose ${name}`
+			});
+			outputChannel?.appendLine(`Selected value for "${name}": ${selected}`);
+			value = selected;
+		} else {
+			value = variable.value;
+		}
+
 		if (value === undefined) {
 			missing.add(name);
-			return `\${${name}}`;
+		} else {
+			variablesToReplace.set(name, value);
 		}
-		return value;
-	});
+	}
 
+	let result = text;
+	for (const [name, value] of variablesToReplace) {
+		result = result.replace(new RegExp(`\\$\\{${name}\\}`, 'g'), value);
+	}
+
+	outputChannel?.appendLine(`substituteVariables - final result: ${result}`);
 	return { result, missing: Array.from(missing) };
 }
 
@@ -286,7 +325,7 @@ function getActiveTerminal(): vscode.Terminal | undefined {
 
 async function runCommand(definition: CommandDefinition): Promise<void> {
 	const variables = getVariables();
-	const { result, missing } = substituteVariables(definition.command, variables);
+	const { result, missing } = await substituteVariables(definition.command, variables);
 	if (missing.length > 0) {
 		await vscode.window.showErrorMessage(
 			`Missing variables: ${missing.map((name) => `\${${name}}`).join(', ')}`
@@ -322,12 +361,36 @@ async function promptForVariable(existing?: VariableDefinition): Promise<Variabl
 		return undefined;
 	}
 
-	const value = await vscode.window.showInputBox({
-		prompt: 'Variable value',
-		value: existing?.value
+	const useOptions = await vscode.window.showQuickPick(['No', 'Yes'], {
+		placeHolder: 'Do you want to create a select variable with multiple options?',
+		title: 'Select Variable Type'
 	});
-	if (value === undefined) {
+	if (useOptions === undefined) {
 		return undefined;
+	}
+
+	let value: string | undefined;
+	let options: string[] | undefined;
+
+	if (useOptions === 'Yes') {
+		const optionsInput = await vscode.window.showInputBox({
+			prompt: 'Options (comma-separated, e.g. start,stop,restart)',
+			value: existing?.options?.join(',') || '',
+			validateInput: (v) => (!v.trim() ? 'At least one option is required.' : undefined)
+		});
+		if (optionsInput === undefined) {
+			return undefined;
+		}
+		options = optionsInput.split(',').map((o) => o.trim()).filter((o) => o.length > 0);
+		value = options[0];
+	} else {
+		value = await vscode.window.showInputBox({
+			prompt: 'Variable value',
+			value: existing?.value
+		});
+		if (value === undefined) {
+			return undefined;
+		}
 	}
 
 	const description = await vscode.window.showInputBox({
@@ -337,8 +400,9 @@ async function promptForVariable(existing?: VariableDefinition): Promise<Variabl
 
 	return {
 		name: name.trim(),
-		value,
-		description: description?.trim() || undefined
+		value: value.trim(),
+		description: description?.trim() || undefined,
+		options: options && options.length > 0 ? options : undefined
 	};
 }
 
@@ -442,6 +506,8 @@ async function pickCommand(): Promise<CommandDefinition | undefined> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+	vscode.window.showInformationMessage('Command TT: activated (temporary)');
+
 	const expandedGroups = new Set<string>(
 		context.globalState.get<string[]>('commandTT.expandedGroups', [])
 	);
@@ -574,6 +640,15 @@ export function activate(context: vscode.ExtensionContext) {
 	const persistExpandedGroups = (): void => {
 		void context.globalState.update('commandTT.expandedGroups', Array.from(expandedGroups));
 	};
+
+	outputChannel = vscode.window.createOutputChannel('Command TT');
+
+	// Try to open the activity bar view programmatically so it appears in Extension Dev Host
+	try {
+		void vscode.commands.executeCommand('workbench.view.extension.commandTT');
+	} catch (e) {
+		// ignore
+	}
 
 	context.subscriptions.push(
 		commandsTreeView.onDidExpandElement((event) => {
