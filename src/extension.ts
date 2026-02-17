@@ -1,12 +1,11 @@
 import * as vscode from 'vscode';
 
-let outputChannel: vscode.OutputChannel | undefined;
-
 type VariableDefinition = {
 	name: string;
 	value: string;
 	description?: string;
 	options?: string[];
+	group?: string;
 };
 
 type CommandDefinition = {
@@ -23,7 +22,6 @@ type SortOrder = 'settings' | 'alphabetical';
 
 const CONFIG_SECTION = 'commandTT';
 const DEFAULT_GROUP = 'Ungrouped';
-const TERMINAL_NAME = 'Command TT';
 
 class VariableItem extends vscode.TreeItem {
 	public readonly definition: VariableDefinition;
@@ -39,6 +37,18 @@ class VariableItem extends vscode.TreeItem {
 		this.tooltip = definition.description ? `${definition.description} (${tooltipValue})` : tooltipValue;
 		this.contextValue = 'variableItem';
 		this.iconPath = new vscode.ThemeIcon('symbol-variable');
+	}
+}
+
+class VariableGroupItem extends vscode.TreeItem {
+	public readonly path: string;
+
+	constructor(label: string, path: string, state: vscode.TreeItemCollapsibleState) {
+		super(label, state);
+		this.path = path;
+		this.id = `var-group:${path}`;
+		this.contextValue = 'variableGroup';
+		this.iconPath = new vscode.ThemeIcon('folder');
 	}
 }
 
@@ -73,24 +83,50 @@ class CommandItem extends vscode.TreeItem {
 	}
 }
 
-class VariablesProvider implements vscode.TreeDataProvider<VariableItem> {
-	private readonly onDidChangeEmitter = new vscode.EventEmitter<VariableItem | undefined>();
+class VariablesProvider implements vscode.TreeDataProvider<VariableGroupItem | VariableItem> {
+	private readonly onDidChangeEmitter = new vscode.EventEmitter<VariableGroupItem | VariableItem | undefined>();
 	readonly onDidChangeTreeData = this.onDidChangeEmitter.event;
+
+	constructor(private readonly expandedGroups: Set<string>) {}
 
 	refresh(): void {
 		this.onDidChangeEmitter.fire(undefined);
 	}
 
-	getTreeItem(element: VariableItem): vscode.TreeItem {
+	getTreeItem(element: VariableGroupItem | VariableItem): vscode.TreeItem {
 		return element;
 	}
 
-	getChildren(): VariableItem[] {
+	getChildren(element?: VariableGroupItem): Array<VariableGroupItem | VariableItem> {
 		const variables = getVariables();
-		const ordered = shouldSortAlphabetically()
-			? [...variables].sort((a, b) => a.name.localeCompare(b.name))
-			: variables;
-		return ordered.map((variable) => new VariableItem(variable));
+		const tree = buildVariableTree(variables, shouldSortAlphabetically());
+
+		if (!element) {
+			return tree.groups.map((group) =>
+				new VariableGroupItem(
+					group.label,
+					group.path,
+					getGroupState(group.path, this.expandedGroups)
+				)
+			);
+		}
+
+		const node = findVariableGroupNode(tree, element.path);
+		if (!node) {
+			return [];
+		}
+
+		const children: Array<VariableGroupItem | VariableItem> = [];
+		for (const group of node.groups) {
+			children.push(
+				new VariableGroupItem(group.label, group.path, getGroupState(group.path, this.expandedGroups))
+			);
+		}
+		for (const variable of node.variables) {
+			children.push(new VariableItem(variable));
+		}
+
+		return children;
 	}
 }
 
@@ -183,6 +219,13 @@ type CommandGroupNode = {
 	commands: CommandDefinition[];
 };
 
+type VariableGroupNode = {
+	label: string;
+	path: string;
+	groups: VariableGroupNode[];
+	variables: VariableDefinition[];
+};
+
 function buildCommandTree(commands: CommandDefinition[], sortAlphabetically: boolean): CommandGroupNode {
 	const root: CommandGroupNode = { label: '', path: '', groups: [], commands: [] };
 
@@ -224,12 +267,68 @@ function buildCommandTree(commands: CommandDefinition[], sortAlphabetically: boo
 	return root;
 }
 
+function buildVariableTree(variables: VariableDefinition[], sortAlphabetically: boolean): VariableGroupNode {
+	const root: VariableGroupNode = { label: '', path: '', groups: [], variables: [] };
+
+	for (const variable of variables) {
+		const rawGroup = variable.group?.trim() || DEFAULT_GROUP;
+		const parts = rawGroup
+			.split('/')
+			.map((part) => part.trim())
+			.filter((part) => part.length > 0);
+
+		const groupParts = parts.length > 0 ? parts : [DEFAULT_GROUP];
+		let current = root;
+		let currentPath = '';
+		for (const part of groupParts) {
+			currentPath = currentPath ? `${currentPath}/${part}` : part;
+			let child = current.groups.find((node) => node.label === part);
+			if (!child) {
+				child = { label: part, path: currentPath, groups: [], variables: [] };
+				current.groups.push(child);
+			}
+			current = child;
+		}
+		current.variables.push(variable);
+	}
+
+	if (sortAlphabetically) {
+		const sortNode = (node: VariableGroupNode): void => {
+			node.groups.sort((a, b) => a.label.localeCompare(b.label));
+			node.variables.sort((a, b) => a.name.localeCompare(b.name));
+			for (const child of node.groups) {
+				sortNode(child);
+			}
+		};
+		for (const child of root.groups) {
+			sortNode(child);
+		}
+	}
+
+	return root;
+}
+
 function findGroupNode(root: CommandGroupNode, path: string): CommandGroupNode | undefined {
 	if (!path) {
 		return root;
 	}
 	const parts = path.split('/');
 	let current: CommandGroupNode | undefined = root;
+	for (const part of parts) {
+		current = current?.groups.find((node) => node.label === part);
+		if (!current) {
+			return undefined;
+		}
+	}
+	return current;
+}
+
+function findVariableGroupNode(root: VariableGroupNode, path: string): VariableGroupNode | undefined {
+	if (!path) {
+		return root;
+	}
+	const parts = path.split('/');
+	let current: VariableGroupNode | undefined = root;
 	for (const part of parts) {
 		current = current?.groups.find((node) => node.label === part);
 		if (!current) {
@@ -355,6 +454,14 @@ async function promptForVariable(existing?: VariableDefinition): Promise<Variabl
 		return undefined;
 	}
 
+	const group = await vscode.window.showInputBox({
+		prompt: 'Group (optional, use / for subgroups)',
+		value: existing?.group
+	});
+	if (group === undefined) {
+		return undefined;
+	}
+
 	const useOptions = await vscode.window.showQuickPick(['No', 'Yes'], {
 		placeHolder: 'Do you want to create a select variable with multiple options?',
 		title: 'Select Variable Type'
@@ -367,16 +474,31 @@ async function promptForVariable(existing?: VariableDefinition): Promise<Variabl
 	let options: string[] | undefined;
 
 	if (useOptions === 'Yes') {
-		const optionsInput = await vscode.window.showInputBox({
-			prompt: 'Options (comma-separated, e.g. start,stop,restart)',
-			value: existing?.options?.join(',') || '',
-			validateInput: (v) => (!v.trim() ? 'At least one option is required.' : undefined)
-		});
-		if (optionsInput === undefined) {
-			return undefined;
+		options = existing?.options ? [...existing.options] : [];
+		
+		// Loop to add options
+		while (true) {
+			const newOption = await vscode.window.showInputBox({
+				prompt: `Enter option value${options.length > 0 ? ` (Current: ${options.join(', ')})` : ''}`,
+				ignoreFocusOut: true
+			});
+
+			if (newOption === undefined) {
+				return undefined; // Cancelled
+			}
+			if (newOption.trim()) {
+				options.push(newOption.trim());
+			}
+
+			const addMore = await vscode.window.showQuickPick(['Yes', 'No'], {
+				placeHolder: 'Add another option?',
+				title: 'Continue adding options?'
+			});
+
+			if (addMore !== 'Yes') {
+				break;
+			}
 		}
-		options = optionsInput.split(',').map((o) => o.trim()).filter((o) => o.length > 0);
-		value = options[0];
 	} else {
 		value = await vscode.window.showInputBox({
 			prompt: 'Variable value',
@@ -387,6 +509,24 @@ async function promptForVariable(existing?: VariableDefinition): Promise<Variabl
 		}
 	}
 
+	if (options && options.length > 0) {
+		value = options[0];
+	} else if (useOptions === 'Yes') {
+		// Fallback if user selected Yes but didn't add any options
+		value = await vscode.window.showInputBox({
+			prompt: 'Variable value',
+			value: existing?.value
+		});
+		if (value === undefined) {
+			return undefined;
+		}
+		options = undefined;
+	}
+
+	if (value === undefined) {
+		return undefined;
+	}
+
 	const description = await vscode.window.showInputBox({
 		prompt: 'Description (optional)',
 		value: existing?.description
@@ -395,6 +535,7 @@ async function promptForVariable(existing?: VariableDefinition): Promise<Variabl
 	return {
 		name: name.trim(),
 		value: value.trim(),
+		group: group.trim() || undefined,
 		description: description?.trim() || undefined,
 		options: options && options.length > 0 ? options : undefined
 	};
@@ -450,6 +591,17 @@ async function promptForCommand(existing?: CommandDefinition): Promise<CommandDe
 		return undefined;
 	}
 
+	const sendNewLineResponse = await vscode.window.showQuickPick(['Yes', 'No'], {
+		placeHolder: `Send a newline (Enter) after the command? (Current: ${(existing?.sendNewLine ?? true) ? 'Yes' : 'No'})`,
+		title: 'Send Newline After Command'
+	});
+
+	if (sendNewLineResponse === undefined) {
+		return undefined;
+	}
+
+	const sendNewLine = sendNewLineResponse === 'Yes';
+
 	return {
 		title: title.trim(),
 		command: command.trim(),
@@ -457,7 +609,7 @@ async function promptForCommand(existing?: CommandDefinition): Promise<CommandDe
 		description: description.trim() || undefined,
 		icon: icon.trim() || undefined,
 		iconColor: iconColor.trim() || undefined,
-		sendNewLine: existing?.sendNewLine
+		sendNewLine: sendNewLine
 	};
 }
 
@@ -500,12 +652,15 @@ async function pickCommand(): Promise<CommandDefinition | undefined> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	const expandedGroups = new Set<string>(
+	const expandedCommandGroups = new Set<string>(
 		context.globalState.get<string[]>('commandTT.expandedGroups', [])
 	);
+	const expandedVariableGroups = new Set<string>(
+		context.globalState.get<string[]>('commandTT.expandedVariableGroups', [])
+	);
 
-	const variablesProvider = new VariablesProvider();
-	const commandsProvider = new CommandsProvider(expandedGroups);
+	const variablesProvider = new VariablesProvider(expandedVariableGroups);
+	const commandsProvider = new CommandsProvider(expandedCommandGroups);
 	const variablesTreeView = vscode.window.createTreeView('commandTTVariables', {
 		treeDataProvider: variablesProvider
 	});
@@ -630,15 +785,17 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
 	const persistExpandedGroups = (): void => {
-		void context.globalState.update('commandTT.expandedGroups', Array.from(expandedGroups));
+		void context.globalState.update('commandTT.expandedGroups', Array.from(expandedCommandGroups));
+		void context.globalState.update('commandTT.expandedVariableGroups', Array.from(expandedVariableGroups));
 	};
 
-	outputChannel = vscode.window.createOutputChannel('Command TT');
+	const outputChannel = vscode.window.createOutputChannel('Command TT');
+	context.subscriptions.push(outputChannel);
 
 	// Try to open the activity bar view programmatically so it appears in Extension Dev Host
 	try {
 		void vscode.commands.executeCommand('workbench.view.extension.commandTT');
-	} catch (e) {
+	} catch {
 		// ignore
 	}
 
@@ -646,14 +803,28 @@ export function activate(context: vscode.ExtensionContext) {
 		commandsTreeView.onDidExpandElement((event) => {
 			const group = event.element;
 			if (group instanceof CommandGroupItem) {
-				expandedGroups.add(group.path);
+				expandedCommandGroups.add(group.path);
 				persistExpandedGroups();
 			}
 		}),
 		commandsTreeView.onDidCollapseElement((event) => {
 			const group = event.element;
 			if (group instanceof CommandGroupItem) {
-				expandedGroups.delete(group.path);
+				expandedCommandGroups.delete(group.path);
+				persistExpandedGroups();
+			}
+		}),
+		variablesTreeView.onDidExpandElement((event) => {
+			const group = event.element;
+			if (group instanceof VariableGroupItem) {
+				expandedVariableGroups.add(group.path);
+				persistExpandedGroups();
+			}
+		}),
+		variablesTreeView.onDidCollapseElement((event) => {
+			const group = event.element;
+			if (group instanceof VariableGroupItem) {
+				expandedVariableGroups.delete(group.path);
 				persistExpandedGroups();
 			}
 		})

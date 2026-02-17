@@ -1,5 +1,13 @@
 # Change Log
 
+## [0.0.5] - 2026-02-12
+
+### Maintenance
+- Updated `eslint` to v9 and `typescript-eslint` to v8.
+- Migrated linter configuration to `eslint.config.mjs`.
+- Updated dependencies to resolve security vulnerabilities.
+- Code cleanup: removed unused variables.
+
 ## [0.0.4] - 2026-02-12
 
 ### Fixed
