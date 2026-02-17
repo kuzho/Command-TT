@@ -1,5 +1,12 @@
 # Change Log
 
+## [0.0.6] - 2026-02-17
+
+### Added
+- **Variable Grouping**: Variables can now be organized into nested groups using the `/` separator (e.g., `Environment/Production`), similar to commands.
+- **Group Persistence**: The expanded/collapsed state of folders in both Commands and Variables views is now persistent across sessions.
+- **Command Configuration**: The `sendNewLine` option (execute immediately) is now exposed in the "Add/Edit Command" wizard flow.
+
 ## [0.0.5] - 2026-02-12
 
 ### Maintenance

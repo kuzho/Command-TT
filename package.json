@@ -214,6 +214,9 @@
               "value": {
                 "type": "string"
               },
+              "group": {
+                "type": "string"
+              },
               "description": {
                 "type": "string"
               },
