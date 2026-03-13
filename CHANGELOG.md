@@ -1,5 +1,30 @@
 # Change Log
 
+## [0.0.7] - 2026-03-13
+
+### Added
+- **Variables webview**: Declared `"type": "webview"` in the view contribution so VS Code renders the Variables panel correctly.
+- **Title bar actions – Variables**: Added Add Variable (+), Add Folder, and Refresh icons to the Variables view header.
+- **Title bar actions – Commands**: Added Add Command (+), Add Folder, and Refresh icons to the Commands view header.
+- **Folder actions – Variables**: Each variable folder now shows inline Add Variable, Add Subfolder, Rename, and Delete buttons.
+- **Folder actions – Commands**: Each command folder now shows inline Add Command, Add Subfolder, Rename, and Delete buttons.
+- **Command folder management**: New commands `commandTT.addCommandGroup`, `commandTT.renameCommandGroup`, and `commandTT.deleteCommandGroup` to create, rename, and delete command folders.
+- **Folder-add icon**: New `folder-add` SVG icon (light/dark) used for all Add Folder actions.
+- **View icons**: Variables view uses `add.svg` icon; Commands view uses `run.svg` icon in the sidebar.
+
+### Changed
+- **Folder collapse**: Clicking anywhere on a folder header now toggles expand/collapse, not just the chevron.
+- **Variable tooltips**: Tooltip on the name field shows the variable name; tooltip on the value field shows the variable value. Removed `description` from tooltip logic.
+- **Removed variable description**: The `description` field is no longer prompted, saved, or displayed for variables. Existing `description` values in settings are silently ignored.
+- **Removed advanced-edit pencil**: The edit (pencil) icon was removed from individual variable rows.
+- **No-op save guard**: Variable rows no longer trigger a config write when name and value are unchanged, preventing unwanted re-renders.
+- **Performance**: Removed wildcard `activationEvents: ["*"]`; VS Code now auto-generates activation from contribution declarations.
+
+### Fixed
+- **Add Command with group context**: `commandTT.addCommand` now pre-fills the group field when invoked from a folder item.
+- **Variable grid columns**: Adjusted grid-template-columns to match the removed pencil button (8 → 7 columns).
+- **Body spacing**: Reduced webview body padding for a tighter, closer-to-edge layout.
+
 ## [0.0.6] - 2026-02-17
 
 ### Added

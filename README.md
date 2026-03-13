@@ -5,7 +5,8 @@ Send terminal commands with variables from two dedicated panels in VS Code.
 ## Features
 
 - Commands panel (shown above Variables) with grouped and nested groups (use /)
-- Variables panel to manage named values like ${server} or ${host}
+- Variables panel with inline textboxes for `${name}` and value editing
+- Nested variable folders, including empty folders saved in settings
 - Run commands by clicking a command item
 - Inline actions to run, edit, and remove items
 - Variable substitution inside commands (ping ${host})
@@ -44,6 +45,11 @@ Refresh Commands and Variables views.
 ### Variables
 
 Variables are reusable values that you define once and use in multiple commands.
+
+- Edit variable names and values directly in the Variables panel.
+- The `${` and `}` tokens are fixed in the UI, so you only type the variable name.
+- Use folder buttons in the Variables panel to create nested folders and add variables inside them.
+- Use the pencil icon for advanced editing when you need descriptions or selectable options.
 
 #### Simple Variables
 A simple variable has a fixed value:
@@ -113,6 +119,19 @@ With variables `action: [start, stop, restart]` and `service: [web, api, db]`, e
 - `value` (required): Default value or first option if `options` is provided.
 - `description` (optional): Shown in the Variables panel tooltip.
 - `options` (optional): Array of selectable values. If present, creates a select variable that prompts on execute.
+- `group` (optional): Folder path using `/` for hierarchy.
+
+### Variable Folders
+
+```json
+[
+  "Linux",
+  "Linux/SSH",
+  "Linux/Services"
+]
+```
+
+Store empty folders with `commandTT.variableFolders` when you want the Variables panel to keep folder structure even before adding variables.
 
 ### Command Definition
 

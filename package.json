@@ -5,58 +5,38 @@
   "author": "Hector Cordero",
   "description": "Send terminal commands with variables",
   "icon": "resources/marketplace-icon.png",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "repository": {
     "type": "git",
     "url": "https://github.com/kuzho/Command-TT.git"
   },
-  "engines": {
-    "vscode": "^1.109.0"
-  },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [
-    "onView:commandTTVariables",
-    "onView:commandTTCommands",
-    "onCommand:commandTT.addVariable",
-    "onCommand:commandTT.editVariable",
-    "onCommand:commandTT.removeVariable",
-    "onCommand:commandTT.addCommand",
-    "onCommand:commandTT.editCommand",
-    "onCommand:commandTT.removeCommand",
-    "onCommand:commandTT.runCommand"
-  ],
-  "main": "./dist/extension.js",
+
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "commandtt",
+          "title": "Command TT",
+          "icon": "resources/command-tt-futura.svg"
+        }
+      ]
+    },
+    "views": {
+      "commandtt": [
+        {
+          "icon": "resources/icons/add.svg",
+          "id": "commandTTVariables",
+          "name": "Variables",
+          "type": "webview"
+        },
+        {
+          "icon": "resources/icons/run.svg",
+          "id": "commandTTCommands",
+          "name": "Commands"
+        }
+      ]
+    },
     "commands": [
-      {
-        "command": "commandTT.addVariable",
-        "title": "Add Variable",
-        "category": "Command TT",
-        "icon": {
-          "light": "resources/icons/add.light.svg",
-          "dark": "resources/icons/add.dark.svg"
-        }
-      },
-      {
-        "command": "commandTT.editVariable",
-        "title": "Edit Variable",
-        "category": "Command TT",
-        "icon": {
-          "light": "resources/icons/edit.light.svg",
-          "dark": "resources/icons/edit.dark.svg"
-        }
-      },
-      {
-        "command": "commandTT.removeVariable",
-        "title": "Remove Variable",
-        "category": "Command TT",
-        "icon": {
-          "light": "resources/icons/delete.light.svg",
-          "dark": "resources/icons/delete.dark.svg"
-        }
-      },
       {
         "command": "commandTT.addCommand",
         "title": "Add Command",
@@ -67,12 +47,48 @@
         }
       },
       {
-        "command": "commandTT.editCommand",
-        "title": "Edit Command",
+        "command": "commandTT.addCommandGroup",
+        "title": "Add Command Folder",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/folder-add.light.svg",
+          "dark": "resources/icons/folder-add.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.renameCommandGroup",
+        "title": "Rename Command Folder",
         "category": "Command TT",
         "icon": {
           "light": "resources/icons/edit.light.svg",
           "dark": "resources/icons/edit.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.deleteCommandGroup",
+        "title": "Delete Command Folder",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/delete.light.svg",
+          "dark": "resources/icons/delete.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.addVariable",
+        "title": "Add Variable",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/add.light.svg",
+          "dark": "resources/icons/add.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.addFolder",
+        "title": "Add Folder",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/folder-add.light.svg",
+          "dark": "resources/icons/folder-add.dark.svg"
         }
       },
       {
@@ -85,21 +101,31 @@
         }
       },
       {
+        "command": "commandTT.editVariable",
+        "title": "Edit Variable",
+        "category": "Command TT"
+      },
+      {
+        "command": "commandTT.removeVariable",
+        "title": "Remove Variable",
+        "category": "Command TT"
+      },
+      {
+        "command": "commandTT.editCommand",
+        "title": "Edit Command",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/edit.light.svg",
+          "dark": "resources/icons/edit.dark.svg"
+        }
+      },
+      {
         "command": "commandTT.runCommand",
         "title": "Run Command",
         "category": "Command TT",
         "icon": {
           "light": "resources/icons/run.light.svg",
           "dark": "resources/icons/run.dark.svg"
-        }
-      },
-      {
-        "command": "commandTT.refreshVariables",
-        "title": "Refresh Variables",
-        "category": "Command TT",
-        "icon": {
-          "light": "resources/icons/refresh.light.svg",
-          "dark": "resources/icons/refresh.dark.svg"
         }
       },
       {
@@ -110,29 +136,17 @@
           "light": "resources/icons/refresh.light.svg",
           "dark": "resources/icons/refresh.dark.svg"
         }
+      },
+      {
+        "command": "commandTT.refreshVariables",
+        "title": "Refresh Variables",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/refresh.light.svg",
+          "dark": "resources/icons/refresh.dark.svg"
+        }
       }
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "commandTT",
-          "title": "Command TT",
-          "icon": "resources/command-tt-futura.svg"
-        }
-      ]
-    },
-    "views": {
-      "commandTT": [
-        {
-          "id": "commandTTCommands",
-          "name": "Commands"
-        },
-        {
-          "id": "commandTTVariables",
-          "name": "Variables"
-        }
-      ]
-    },
     "menus": {
       "view/title": [
         {
@@ -141,8 +155,8 @@
           "group": "navigation"
         },
         {
-          "command": "commandTT.addCommand",
-          "when": "view == commandTTCommands",
+          "command": "commandTT.addFolder",
+          "when": "view == commandTTVariables",
           "group": "navigation"
         },
         {
@@ -152,6 +166,16 @@
         },
         {
           "command": "commandTT.refreshCommands",
+          "when": "view == commandTTCommands",
+          "group": "navigation"
+        },
+        {
+          "command": "commandTT.addCommand",
+          "when": "view == commandTTCommands",
+          "group": "navigation"
+        },
+        {
+          "command": "commandTT.addCommandGroup",
           "when": "view == commandTTCommands",
           "group": "navigation"
         }
@@ -170,6 +194,26 @@
         {
           "command": "commandTT.removeCommand",
           "when": "view == commandTTCommands && viewItem == commandItem",
+          "group": "inline"
+        },
+        {
+          "command": "commandTT.addCommand",
+          "when": "view == commandTTCommands && viewItem == commandGroup",
+          "group": "inline"
+        },
+        {
+          "command": "commandTT.addCommandGroup",
+          "when": "view == commandTTCommands && viewItem == commandGroup",
+          "group": "inline"
+        },
+        {
+          "command": "commandTT.renameCommandGroup",
+          "when": "view == commandTTCommands && viewItem == commandGroup",
+          "group": "inline"
+        },
+        {
+          "command": "commandTT.deleteCommandGroup",
+          "when": "view == commandTTCommands && viewItem == commandGroup",
           "group": "inline"
         },
         {
@@ -234,6 +278,14 @@
             ]
           }
         },
+        "commandTT.variableFolders": {
+          "type": "array",
+          "default": [],
+          "description": "List of folder paths used by the Variables panel. Use / for nested folders.",
+          "items": {
+            "type": "string"
+          }
+        },
         "commandTT.commands": {
           "type": "array",
           "default": [],
@@ -286,6 +338,9 @@
     "lint": "eslint src",
     "vsix": "cross-env NODE_OPTIONS=--no-deprecation vsce package --no-dependencies"
   },
+  "engines": {
+    "vscode": "^1.109.0"
+  },
   "devDependencies": {
     "@types/node": "22.x",
     "@types/vscode": "^1.109.0",
@@ -300,5 +355,7 @@
   "overrides": {
     "cross-spawn": "^7.0.6",
     "braces": "^3.0.3"
-  }
+  },
+  "type": "module",
+  "main": "./dist/extension.cjs"
 }
