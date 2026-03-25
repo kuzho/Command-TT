@@ -1,5 +1,10 @@
 # Change Log
 
+## [0.0.8] - 2026-03-25
+
+### Changed
+- Lowered minimum VS Code engine requirement to `^1.107.0` for compatibility with Antigravity 1.107.0.
+
 ## [0.0.7] - 2026-03-13
 
 ### Added
