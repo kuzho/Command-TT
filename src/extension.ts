@@ -1,8 +1,11 @@
 import * as vscode from 'vscode';
 
+type VariableType = 'text' | 'select' | 'checkbox' | 'date';
+
 type VariableDefinition = {
 	name: string;
 	value: string;
+	type?: VariableType;
 	description?: string;
 	options?: string[];
 	group?: string;
@@ -168,7 +171,8 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 		const variables = getVariables();
 		const variable: VariableDefinition = {
 			name: getUniqueVariableName(variables),
-			value: 'value',
+			value: '',
+			type: 'text',
 			group: normalizeGroupPath(groupPath)
 		};
 
@@ -226,15 +230,23 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 
 		const trimmedName = newName.trim();
 		const newPath = parentPath ? `${parentPath}/${trimmedName}` : trimmedName;
+		const isDefaultGroup = path === DEFAULT_GROUP;
 
 		const folders = getVariableFolders().map((folder) => {
+			if (isDefaultGroup) {
+				return folder;
+			}
 			if (folder === path) { return newPath; }
 			if (folder.startsWith(path + '/')) { return newPath + folder.slice(path.length); }
 			return folder;
 		});
+		if (isDefaultGroup && !folders.includes(newPath)) {
+			folders.push(newPath);
+		}
 
 		const variables = getVariables().map((variable) => {
 			const g = normalizeGroupPath(variable.group);
+			if (isDefaultGroup && !g) { return { ...variable, group: newPath }; }
 			if (!g) { return variable; }
 			if (g === path) { return { ...variable, group: newPath }; }
 			if (g.startsWith(path + '/')) { return { ...variable, group: newPath + g.slice(path.length) }; }
@@ -408,8 +420,9 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 
 		const updated: VariableDefinition = {
 			name: nextName,
-			value: message.value,
+			value: normalizeVariableValue(selected.type ?? 'text', message.value, selected.options),
 			group: selected.group,
+			type: selected.type,
 			options: selected.options
 		};
 
@@ -465,7 +478,7 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			color: var(--vscode-foreground);
 			background: var(--vscode-sideBar-background);
 		}
-		button, input { font: inherit; }
+		button, input, select { font: inherit; }
 		#app { display: grid; gap: 4px; }
 		.icon-button {
 			display: inline-flex;
@@ -514,42 +527,77 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 		.group-body[hidden] { display: none !important; }
 		.variable-row {
 			display: grid;
-			grid-template-columns: auto minmax(0, 1.05fr) auto auto minmax(0, 1fr) auto auto;
+			grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) auto auto auto;
 			align-items: center;
-			gap: 4px;
+			gap: 6px;
 			padding: 3px 2px 3px calc(var(--depth, 0) * 12px + 18px);
 			border-radius: 8px;
 		}
 		.variable-row:hover {
 			background: color-mix(in srgb, var(--vscode-list-hoverBackground) 40%, transparent);
 		}
-		.variable-token,
-		.variable-separator {
-			color: var(--vscode-descriptionForeground);
-			font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+		.variable-label {
+			min-width: 0;
+			font-weight: 600;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
 		}
-		.variable-input {
+		.variable-meta {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			min-width: 0;
+		}
+		.variable-type {
+			padding: 2px 6px;
+			border-radius: 999px;
+			background: color-mix(in srgb, var(--vscode-badge-background) 70%, transparent);
+			color: var(--vscode-badge-foreground);
+			font-size: 11px;
+			text-transform: lowercase;
+		}
+		.variable-control-wrap {
+			min-width: 0;
+		}
+		.variable-input,
+		.variable-select {
+			width: 100%;
 			min-width: 0;
 			padding: 5px 8px;
 			border: 1px solid var(--vscode-input-border, transparent);
 			border-radius: 6px;
 			background: var(--vscode-input-background);
 			color: var(--vscode-input-foreground);
+			font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
 		}
-		.variable-input:focus {
+		.variable-input[type='date'] {
+			color-scheme: light dark;
+		}
+		.variable-input:focus,
+		.variable-select:focus {
 			outline: 1px solid var(--vscode-focusBorder);
 			border-color: var(--vscode-focusBorder);
 		}
-		.variable-name,
-		.variable-value {
-			font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+		.variable-checkbox {
+			display: inline-flex;
+			align-items: center;
+			gap: 8px;
+			padding: 0 4px;
+			min-height: 30px;
 		}
-		.variable-badge {
-			padding: 2px 6px;
-			border-radius: 999px;
-			background: color-mix(in srgb, var(--vscode-badge-background) 70%, transparent);
-			color: var(--vscode-badge-foreground);
-			font-size: 11px;
+		.variable-checkbox input {
+			margin: 0;
+		}
+		.variable-checkbox-label {
+			color: var(--vscode-descriptionForeground);
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+		.variable-spacer {
+			width: 1px;
+			height: 1px;
 		}
 		.empty-state {
 			padding: 14px;
@@ -603,42 +651,90 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			return input;
 		}
 
+		function createSelect(className, originalName, options, value) {
+			const select = document.createElement('select');
+			select.className = 'variable-select ' + className;
+			select.dataset.originalName = originalName;
+			for (const optionValue of options || []) {
+				const option = document.createElement('option');
+				option.value = optionValue;
+				option.textContent = optionValue;
+				select.append(option);
+			}
+			select.value = value || '';
+			if (!select.value && select.options.length > 0) {
+				select.value = select.options[0].value;
+			}
+			return select;
+		}
+
+		function postValue(originalName, value) {
+			vscode.postMessage({
+				type: 'saveVariable',
+				originalName,
+				name: originalName,
+				value
+			});
+		}
+
+		function createControl(variable) {
+			const type = variable.type || 'text';
+			if (type === 'select') {
+				const select = createSelect('variable-value', variable.name, variable.options || [], variable.value);
+				select.title = variable.value || '';
+				return select;
+			}
+			if (type === 'checkbox') {
+				const wrap = document.createElement('label');
+				wrap.className = 'variable-checkbox';
+				const checkbox = document.createElement('input');
+				checkbox.type = 'checkbox';
+				checkbox.className = 'variable-checkbox-input';
+				checkbox.dataset.originalName = variable.name;
+				const options = Array.isArray(variable.options) ? variable.options : [];
+				checkbox.dataset.offValue = options[0] || 'false';
+				checkbox.dataset.onValue = options[1] || 'true';
+				checkbox.checked = variable.value === checkbox.dataset.onValue;
+				const label = document.createElement('span');
+				label.className = 'variable-checkbox-label';
+				label.textContent = checkbox.checked ? checkbox.dataset.onValue : checkbox.dataset.offValue;
+				wrap.append(checkbox, label);
+				return wrap;
+			}
+			const input = createInput('variable-value', variable.value, variable.name, type === 'date' ? 'YYYY-MM-DD' : 'value');
+			input.type = type === 'date' ? 'date' : 'text';
+			input.title = variable.value || '';
+			return input;
+		}
+
 		function renderVariable(variable, depth) {
 			const row = document.createElement('div');
 			row.className = 'variable-row';
 			row.style.setProperty('--depth', String(depth));
 
-			const prefix = document.createElement('span');
-			prefix.className = 'variable-token';
-			prefix.textContent = '$' + '{';
+			const label = document.createElement('div');
+			label.className = 'variable-label';
+			label.textContent = '$' + '{' + (variable.name || '') + '}';
+			label.title = '$' + '{' + (variable.name || '') + '}';
 
-			const nameInput = createInput('variable-name', variable.name, variable.name, 'name');
-			nameInput.title = variable.name || '';
+			const controlWrap = document.createElement('div');
+			controlWrap.className = 'variable-control-wrap';
+			controlWrap.append(createControl(variable));
 
-			const suffix = document.createElement('span');
-			suffix.className = 'variable-token';
-			suffix.textContent = '}';
+			const meta = document.createElement('div');
+			meta.className = 'variable-meta';
+			const typeBadge = document.createElement('span');
+			typeBadge.className = 'variable-type';
+			typeBadge.textContent = variable.type || 'text';
+			meta.append(typeBadge);
 
-			const separator = document.createElement('span');
-			separator.className = 'variable-separator';
-			separator.textContent = '=';
-
-			const valueInput = createInput('variable-value', variable.value, variable.name, 'value');
-			valueInput.title = variable.value || '';
-
-			row.append(prefix, nameInput, suffix, separator, valueInput);
-
-			if (Array.isArray(variable.options) && variable.options.length > 0) {
-				const badge = document.createElement('span');
-				badge.className = 'variable-badge';
-				badge.textContent = 'select';
-				row.append(badge);
-			} else {
-				const spacer = document.createElement('span');
-				row.append(spacer);
-			}
-
-			row.append(button('delete-variable', 'Remove variable', icons.delete, { name: variable.name }));
+			row.append(
+				label,
+				controlWrap,
+				meta,
+				button('advanced-edit-variable', 'Edit variable', icons.edit, { name: variable.name }),
+				button('delete-variable', 'Remove variable', icons.delete, { name: variable.name })
+			);
 
 			row.title = (variable.name || '') + ' = ' + (variable.value || '');
 
@@ -712,20 +808,6 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			}
 		}
 
-		function saveRow(row) {
-			const nameInput = row.querySelector('.variable-name');
-			const valueInput = row.querySelector('.variable-value');
-			if (!(nameInput instanceof HTMLInputElement) || !(valueInput instanceof HTMLInputElement)) {
-				return;
-			}
-			vscode.postMessage({
-				type: 'saveVariable',
-				originalName: nameInput.dataset.originalName,
-				name: nameInput.value,
-				value: valueInput.value
-			});
-		}
-
 		app.addEventListener('click', (event) => {
 			const origin = event.target instanceof Element ? event.target : undefined;
 			if (!origin) {
@@ -784,14 +866,42 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			if (!(target instanceof HTMLInputElement)) {
 				return;
 			}
-			if (!target.classList.contains('variable-name') && !target.classList.contains('variable-value')) {
+			if (!target.classList.contains('variable-value') || target.type !== 'text') {
 				return;
 			}
-			const row = target.closest('.variable-row');
-			if (row) {
-				saveRow(row);
-			}
+			postValue(target.dataset.originalName, target.value);
 		}, true);
+
+		app.addEventListener('input', (event) => {
+			const target = event.target;
+			if (!(target instanceof HTMLInputElement)) {
+				return;
+			}
+			if (!target.classList.contains('variable-value') || target.type !== 'text') {
+				return;
+			}
+			postValue(target.dataset.originalName, target.value);
+		});
+
+		app.addEventListener('change', (event) => {
+			const target = event.target;
+			if (target instanceof HTMLSelectElement && target.classList.contains('variable-value')) {
+				postValue(target.dataset.originalName, target.value);
+				return;
+			}
+			if (target instanceof HTMLInputElement && target.classList.contains('variable-value') && target.type === 'date') {
+				postValue(target.dataset.originalName, target.value);
+				return;
+			}
+			if (target instanceof HTMLInputElement && target.classList.contains('variable-checkbox-input')) {
+				const label = target.parentElement?.querySelector('.variable-checkbox-label');
+				const nextValue = target.checked ? target.dataset.onValue : target.dataset.offValue;
+				if (label instanceof HTMLElement) {
+					label.textContent = nextValue || '';
+				}
+				postValue(target.dataset.originalName, nextValue || '');
+			}
+		});
 
 		app.addEventListener('keydown', (event) => {
 			const target = event.target;
@@ -800,10 +910,7 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			}
 			if (event.key === 'Enter') {
 				event.preventDefault();
-				const row = target.closest('.variable-row');
-				if (row) {
-					saveRow(row);
-				}
+				postValue(target.dataset.originalName, target.value);
 				target.blur();
 			}
 		});
@@ -817,10 +924,12 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			state.focusName = event.data.payload.focusName;
 			render();
 			if (state.focusName) {
-				const input = app.querySelector('.variable-name[data-original-name="' + CSS.escape(state.focusName) + '"]');
-				if (input instanceof HTMLInputElement) {
+				const input = app.querySelector('[data-original-name="' + CSS.escape(state.focusName) + '"]');
+				if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
 					input.focus();
-					input.select();
+					if (input instanceof HTMLInputElement && input.type === 'text') {
+						input.select();
+					}
 				}
 			}
 		});
@@ -856,7 +965,7 @@ function getCommandIconColor(override?: string): vscode.ThemeColor | undefined {
 }
 
 function getVariables(): VariableDefinition[] {
-	return getConfig().get<VariableDefinition[]>('variables', []);
+	return getConfig().get<VariableDefinition[]>('variables', []).map(normalizeVariable);
 }
 
 function getVariableFolders(): string[] {
@@ -897,6 +1006,72 @@ function getUniqueVariableName(variables: VariableDefinition[], baseName = 'name
 		index += 1;
 	}
 	return `${baseName}${index}`;
+}
+
+function isVariableType(value: string | undefined): value is VariableType {
+	return value === 'text' || value === 'select' || value === 'checkbox' || value === 'date';
+}
+
+function normalizeVariableOptions(type: VariableType, options?: string[], value?: string): string[] | undefined {
+	const normalizedOptions = (options ?? [])
+		.map((option) => option.trim())
+		.filter((option) => option.length > 0);
+	if (type === 'checkbox') {
+		const checkboxOptions = normalizedOptions.slice(0, 2);
+		while (checkboxOptions.length < 2) {
+			checkboxOptions.push(checkboxOptions.length === 0 ? 'No' : 'Yes');
+		}
+		return checkboxOptions;
+	}
+	if (type === 'select') {
+		if (normalizedOptions.length > 0) {
+			return normalizedOptions;
+		}
+		return value?.trim() ? [value.trim()] : ['Option 1'];
+	}
+	return normalizedOptions.length > 0 ? normalizedOptions : undefined;
+}
+
+function normalizeDateValue(value?: string): string {
+	const trimmed = value?.trim() ?? '';
+	if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+		return trimmed;
+	}
+	return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeVariableValue(type: VariableType, value?: string, options?: string[]): string {
+	const trimmed = value ?? '';
+	if (type === 'select') {
+		return options && options.length > 0
+			? (options.includes(trimmed) ? trimmed : options[0])
+			: trimmed;
+	}
+	if (type === 'checkbox') {
+		const checkboxOptions = normalizeVariableOptions(type, options, trimmed) ?? ['No', 'Yes'];
+		return trimmed === checkboxOptions[1] ? checkboxOptions[1] : checkboxOptions[0];
+	}
+	if (type === 'date') {
+		return normalizeDateValue(trimmed);
+	}
+	return trimmed;
+}
+
+function normalizeVariable(variable: VariableDefinition): VariableDefinition {
+	const type = isVariableType(variable.type)
+		? variable.type
+		: Array.isArray(variable.options) && variable.options.length > 0
+			? 'select'
+			: 'text';
+	const options = normalizeVariableOptions(type, variable.options, variable.value);
+	return {
+		...variable,
+		name: variable.name.trim(),
+		group: normalizeGroupPath(variable.group),
+		type,
+		options,
+		value: normalizeVariableValue(type, variable.value, options)
+	};
 }
 
 function ensureVariableGroup(root: VariableGroupNode, pathParts: string[]): VariableGroupNode {
@@ -1009,15 +1184,7 @@ async function substituteVariables(text: string, variables: VariableDefinition[]
 			missing.add(name);
 			continue;
 		}
-		let value: string | undefined;
-		if (variable.options && variable.options.length > 0) {
-			value = await vscode.window.showQuickPick(variable.options, {
-				placeHolder: `Select value for ${name}`,
-				title: `Choose ${name}`
-			});
-		} else {
-			value = variable.value;
-		}
+		const value = variable.value;
 		if (value === undefined) {
 			missing.add(name);
 		} else {
@@ -1075,64 +1242,80 @@ async function promptForVariable(existing?: VariableDefinition, defaultGroup?: s
 	if (group === undefined) {
 		return undefined;
 	}
-	const useOptions = await vscode.window.showQuickPick(['No', 'Yes'], {
-		placeHolder: 'Do you want to create a select variable with multiple options?',
-		title: 'Select Variable Type'
+	const typePick = await vscode.window.showQuickPick([
+		{ label: 'Text', value: 'text' },
+		{ label: 'Select', value: 'select' },
+		{ label: 'Checkbox', value: 'checkbox' },
+		{ label: 'Date', value: 'date' }
+	], {
+		placeHolder: 'Choose the variable type',
+		title: 'Variable Type'
 	});
-	if (useOptions === undefined) {
+	if (!typePick) {
 		return undefined;
 	}
-	let value: string | undefined;
+	const type = typePick.value as VariableType;
+	let value = existing?.value ?? '';
 	let options: string[] | undefined;
-	if (useOptions === 'Yes') {
-		options = existing?.options ? [...existing.options] : [];
-		while (true) {
-			const newOption = await vscode.window.showInputBox({
-				prompt: `Enter option value${options.length > 0 ? ` (Current: ${options.join(', ')})` : ''}`,
-				ignoreFocusOut: true
-			});
-			if (newOption === undefined) {
+	if (type === 'text') {
+		const textValue = await vscode.window.showInputBox({
+			prompt: 'Variable value',
+			value: existing?.type === 'text' ? existing.value : ''
+		});
+		if (textValue === undefined) {
+			return undefined;
+		}
+		value = textValue;
+	}
+	if (type === 'select' || type === 'checkbox') {
+		const optionText = await vscode.window.showInputBox({
+			prompt: type === 'checkbox'
+				? 'Two options separated by comma (example: Disabled, Enabled)'
+				: 'Options separated by comma',
+			value: existing?.options?.join(', ') ?? '',
+			validateInput: (raw) => {
+				const parsed = raw.split(',').map((option) => option.trim()).filter((option) => option.length > 0);
+				if (type === 'checkbox' && parsed.length !== 2) {
+					return 'Checkbox variables require exactly 2 options.';
+				}
+				if (type === 'select' && parsed.length === 0) {
+					return 'Add at least one option.';
+				}
 				return undefined;
 			}
-			if (newOption.trim()) {
-				options.push(newOption.trim());
-			}
-			const addMore = await vscode.window.showQuickPick(['Yes', 'No'], {
-				placeHolder: 'Add another option?',
-				title: 'Continue adding options?'
-			});
-			if (addMore !== 'Yes') {
-				break;
-			}
-		}
-	} else {
-		value = await vscode.window.showInputBox({
-			prompt: 'Variable value',
-			value: existing?.value
 		});
-		if (value === undefined) {
+		if (optionText === undefined) {
 			return undefined;
 		}
-	}
-	if (options && options.length > 0) {
-		value = options[0];
-	} else if (useOptions === 'Yes') {
-		value = await vscode.window.showInputBox({
-			prompt: 'Variable value',
-			value: existing?.value
-		});
-		if (value === undefined) {
+		options = optionText.split(',').map((option) => option.trim()).filter((option) => option.length > 0);
+		const valuePick = await vscode.window.showQuickPick(
+			options.map((option) => ({ label: option })),
+			{
+				placeHolder: 'Choose the current value',
+				title: 'Current Variable Value'
+			}
+		);
+		if (!valuePick) {
 			return undefined;
 		}
-		options = undefined;
+		value = valuePick.label;
 	}
-	if (value === undefined) {
-		return undefined;
+	if (type === 'date') {
+		const dateValue = await vscode.window.showInputBox({
+			prompt: 'Date value in YYYY-MM-DD format',
+			value: existing?.type === 'date' ? normalizeDateValue(existing.value) : normalizeDateValue(),
+			validateInput: (raw) => /^\d{4}-\d{2}-\d{2}$/.test(raw.trim()) ? undefined : 'Use YYYY-MM-DD format.'
+		});
+		if (dateValue === undefined) {
+			return undefined;
+		}
+		value = normalizeDateValue(dateValue);
 	}
 	return {
 		name: name.trim(),
-		value,
+		value: normalizeVariableValue(type, value, options),
 		group: normalizeGroupPath(group),
+		type,
 		options: options && options.length > 0 ? options : undefined
 	};
 }
@@ -1397,8 +1580,10 @@ export function activate(context: vscode.ExtensionContext) {
 
 			const trimmed = newName.trim();
 			const newPath = parentPath ? `${parentPath}/${trimmed}` : trimmed;
+			const isDefaultGroup = path === DEFAULT_GROUP;
 			const commands = getCommands().map((command) => {
 				const group = normalizeGroupPath(command.group);
+				if (isDefaultGroup && !group) { return { ...command, group: newPath }; }
 				if (!group) { return command; }
 				if (group === path) { return { ...command, group: newPath }; }
 				if (group.startsWith(path + '/')) { return { ...command, group: newPath + group.slice(path.length) }; }

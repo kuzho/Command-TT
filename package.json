@@ -5,7 +5,7 @@
   "author": "Hector Cordero",
   "description": "Send terminal commands with variables",
   "icon": "resources/marketplace-icon.png",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "repository": {
     "type": "git",
     "url": "https://github.com/kuzho/Command-TT.git"
@@ -258,6 +258,16 @@
               "value": {
                 "type": "string"
               },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "select",
+                  "checkbox",
+                  "date"
+                ],
+                "description": "Variable control type shown in the Variables panel."
+              },
               "group": {
                 "type": "string"
               },
@@ -269,7 +279,7 @@
                 "items": {
                   "type": "string"
                 },
-                "description": "Array of selectable options for this variable. If provided, user will be prompted to choose one."
+                "description": "Selectable options for select variables. Checkbox variables must provide exactly 2 options."
               }
             },
             "required": [

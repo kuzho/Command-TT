@@ -1,6 +1,27 @@
 # Change Log
 
-## [0.0.8] - 2026-03-25
+## [1.0.0] - 2026-03-31
+
+### Added
+- Variable types in the Variables panel: `text`, `select`, `checkbox`, and `date`.
+- Type-aware controls in variable rows:
+	- `text`: free text input.
+	- `select`: dropdown values from comma-separated options.
+	- `checkbox`: exactly 2 options and toggle behavior.
+	- `date`: native date picker.
+- Variable rows now include explicit Edit and Delete actions.
+- Variable labels are shown visually as `${name}` for easier copy/use in commands.
+
+### Changed
+- Variables are normalized for better backward compatibility with existing settings.
+- Variable editing flow now supports changing variable name, type, value, and folder from Edit.
+- Text variable values update inline for faster editing.
+
+### Fixed
+- Renaming folders now correctly handles the synthetic `Ungrouped` folder in Variables.
+- Renaming folders now correctly handles the synthetic `Ungrouped` folder in Commands.
+
+## [0.0.9] - 2026-03-25
 
 ### Changed
 - Lowered minimum VS Code engine requirement to `^1.107.0` for compatibility with Antigravity 1.107.0.
