@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-type VariableType = 'text' | 'select' | 'checkbox' | 'date';
+type VariableType = 'text' | 'select' | 'checkbox' | 'date' | 'datetime';
 
 type VariableDefinition = {
 	name: string;
@@ -88,11 +88,21 @@ class CommandItem extends vscode.TreeItem {
 class CommandsProvider implements vscode.TreeDataProvider<CommandGroupItem | CommandItem> {
 	private readonly onDidChangeEmitter = new vscode.EventEmitter<CommandGroupItem | CommandItem | undefined>();
 	readonly onDidChangeTreeData = this.onDidChangeEmitter.event;
+	private searchQuery = '';
 
 	constructor(private readonly expandedGroups: Set<string>) {}
 
 	refresh(): void {
 		this.onDidChangeEmitter.fire(undefined);
+	}
+
+	setSearchQuery(query: string): void {
+		this.searchQuery = query.trim().toLowerCase();
+		this.refresh();
+	}
+
+	getSearchQuery(): string {
+		return this.searchQuery;
 	}
 
 	getTreeItem(element: CommandGroupItem | CommandItem): vscode.TreeItem {
@@ -101,14 +111,18 @@ class CommandsProvider implements vscode.TreeDataProvider<CommandGroupItem | Com
 
 	getChildren(element?: CommandGroupItem): Array<CommandGroupItem | CommandItem> {
 		const commands = getCommands();
-		const tree = buildCommandTree(commands, shouldSortAlphabetically());
+		const baseTree = buildCommandTree(commands, shouldSortAlphabetically());
+		const tree = this.searchQuery ? filterCommandTree(baseTree, this.searchQuery) : baseTree;
+		const groupStateFor = (path: string) => this.searchQuery
+			? vscode.TreeItemCollapsibleState.Expanded
+			: getGroupState(path, this.expandedGroups);
 
 		if (!element) {
 			return tree.groups.map((group) =>
 				new CommandGroupItem(
 					group.label,
 					group.path,
-					getGroupState(group.path, this.expandedGroups)
+					groupStateFor(group.path)
 				)
 			);
 		}
@@ -121,7 +135,7 @@ class CommandsProvider implements vscode.TreeDataProvider<CommandGroupItem | Com
 		const children: Array<CommandGroupItem | CommandItem> = [];
 		for (const group of node.groups) {
 			children.push(
-				new CommandGroupItem(group.label, group.path, getGroupState(group.path, this.expandedGroups))
+				new CommandGroupItem(group.label, group.path, groupStateFor(group.path))
 			);
 		}
 		for (const command of node.commands) {
@@ -138,8 +152,22 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 
 	constructor(
 		private readonly expandedGroups: Set<string>,
-		private readonly persistExpandedGroups: () => void
+		private readonly persistExpandedGroups: () => void,
+		private readonly variableFolders: Set<string>,
+		private readonly persistVariableFolders: () => void
 	) {}
+
+	private getFolderPaths(): string[] {
+		return Array.from(this.variableFolders);
+	}
+
+	private ensureFolderPath(path?: string): void {
+		const normalized = normalizeGroupPath(path);
+		if (!normalized) {
+			return;
+		}
+		this.variableFolders.add(normalized);
+	}
 
 	resolveWebviewView(webviewView: vscode.WebviewView): void {
 		this.view = webviewView;
@@ -167,6 +195,13 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 		this.postState();
 	}
 
+	focusSearch(): void {
+		if (!this.view) {
+			return;
+		}
+		void this.view.webview.postMessage({ type: 'focusSearch' });
+	}
+
 	async createVariable(groupPath?: string): Promise<void> {
 		const variables = getVariables();
 		const variable: VariableDefinition = {
@@ -178,6 +213,8 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 
 		await updateConfig('variables', [...variables, variable]);
 		if (variable.group) {
+			this.ensureFolderPath(variable.group);
+			this.persistVariableFolders();
 			this.expandedGroups.add(variable.group);
 			this.persistExpandedGroups();
 		}
@@ -193,14 +230,13 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 
 		const normalizedParent = normalizeGroupPath(parentPath);
 		const newPath = normalizedParent ? `${normalizedParent}/${folderName}` : folderName;
-		const folders = getVariableFolders();
-		if (folders.includes(newPath)) {
+		if (this.variableFolders.has(newPath)) {
 			await vscode.window.showInformationMessage(`Folder already exists: ${newPath}`);
 			return;
 		}
 
-		const nextFolders = shouldSortAlphabetically() ? [...folders, newPath].sort() : [...folders, newPath];
-		await updateConfig('variableFolders', nextFolders);
+		this.ensureFolderPath(newPath);
+		this.persistVariableFolders();
 		this.expandedGroups.add(newPath);
 		if (normalizedParent) {
 			this.expandedGroups.add(normalizedParent);
@@ -232,7 +268,7 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 		const newPath = parentPath ? `${parentPath}/${trimmedName}` : trimmedName;
 		const isDefaultGroup = path === DEFAULT_GROUP;
 
-		const folders = getVariableFolders().map((folder) => {
+		const folders = this.getFolderPaths().map((folder) => {
 			if (isDefaultGroup) {
 				return folder;
 			}
@@ -262,9 +298,14 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 		this.expandedGroups.clear();
 		for (const g of nextExpanded) { this.expandedGroups.add(g); }
 		this.persistExpandedGroups();
+		this.variableFolders.clear();
+		for (const folder of normalizeFolderPaths(folders)) {
+			this.variableFolders.add(folder);
+		}
+		this.persistVariableFolders();
 
-		await updateConfig('variableFolders', folders);
 		await updateConfig('variables', variables);
+		this.postState();
 	}
 
 	async deleteFolder(path: string): Promise<void> {
@@ -278,7 +319,7 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
-		const folders = getVariableFolders().filter(
+		const folders = this.getFolderPaths().filter(
 			(folder) => folder !== path && !folder.startsWith(path + '/')
 		);
 
@@ -297,9 +338,14 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			}
 		}
 		this.persistExpandedGroups();
+		this.variableFolders.clear();
+		for (const folder of normalizeFolderPaths(folders)) {
+			this.variableFolders.add(folder);
+		}
+		this.persistVariableFolders();
 
-		await updateConfig('variableFolders', folders);
 		await updateConfig('variables', variables);
+		this.postState();
 	}
 
 	async editVariable(name?: string): Promise<void> {
@@ -326,6 +372,8 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 		const variables = getVariables().map((variable) => (variable.name === selected.name ? updated : variable));
 		await updateConfig('variables', variables);
 		if (updated.group) {
+			this.ensureFolderPath(updated.group);
+			this.persistVariableFolders();
 			this.expandedGroups.add(updated.group);
 			this.persistExpandedGroups();
 		}
@@ -450,7 +498,7 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 		void this.view.webview.postMessage({
 			type: 'state',
 			payload: {
-				tree: buildVariableTree(getVariables(), getVariableFolders(), shouldSortAlphabetically()),
+				tree: buildVariableTree(getVariables(), this.getFolderPaths(), shouldSortAlphabetically()),
 				expandedGroups: Array.from(this.expandedGroups),
 				focusName: this.pendingFocusName
 			}
@@ -479,16 +527,55 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			background: var(--vscode-sideBar-background);
 		}
 		button, input, select { font: inherit; }
+		.toolbar {
+			position: sticky;
+			top: 0;
+			z-index: 1;
+			margin-bottom: 6px;
+			padding-bottom: 2px;
+			background: linear-gradient(to bottom, var(--vscode-sideBar-background) 78%, transparent);
+		}
+		.search-shell {
+			display: grid;
+			grid-template-columns: auto minmax(0, 1fr) auto;
+			align-items: center;
+			gap: 4px;
+			padding: 1px 4px 1px 6px;
+			border: 1px solid color-mix(in srgb, var(--vscode-input-border, transparent) 70%, transparent);
+			border-radius: 7px;
+			background: color-mix(in srgb, var(--vscode-input-background) 92%, var(--vscode-sideBar-background));
+		}
+		.search-shell:focus-within {
+			border-color: var(--vscode-focusBorder);
+		}
+		.search-leading {
+			color: var(--vscode-descriptionForeground);
+			font-size: 12px;
+			line-height: 1;
+		}
+		.search-input {
+			width: 100%;
+			padding: 3px 0;
+			border: 0;
+			outline: none;
+			background: transparent;
+			color: var(--vscode-input-foreground);
+		}
+		.clear-search-button {
+			width: 20px;
+			height: 20px;
+			border-radius: 5px;
+		}
 		#app { display: grid; gap: 4px; }
 		.icon-button {
 			display: inline-flex;
 			align-items: center;
 			justify-content: center;
-			width: 26px;
-			height: 26px;
+			width: 22px;
+			height: 22px;
 			padding: 0;
 			border: 1px solid transparent;
-			border-radius: 6px;
+			border-radius: 5px;
 			background: transparent;
 			color: var(--vscode-icon-foreground);
 			cursor: pointer;
@@ -498,23 +585,26 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			border-color: var(--vscode-toolbar-hoverOutline, transparent);
 		}
 		.icon-button svg {
-			width: 16px;
-			height: 16px;
+			width: 14px;
+			height: 14px;
 			stroke: currentColor;
 			fill: none;
 			stroke-width: 1.8;
 			stroke-linecap: round;
 			stroke-linejoin: round;
 		}
-		.group { display: grid; gap: 6px; }
+		.group { display: grid; gap: 4px; }
 		.group-header {
 			display: flex;
 			align-items: center;
-			gap: 6px;
-			padding: 3px 2px 3px calc(var(--depth, 0) * 12px);
+			gap: 4px;
+			padding: 2px 3px 2px calc(var(--depth, 0) * 10px);
 			border-radius: 8px;
 			background: color-mix(in srgb, var(--vscode-sideBarSectionHeader-background) 70%, transparent);
 			cursor: pointer;
+		}
+		.group-header.is-selected {
+			outline: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 50%, transparent);
 		}
 		.group-label {
 			font-weight: 600;
@@ -523,47 +613,94 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			text-overflow: ellipsis;
 		}
 		.spacer { flex: 1; }
+		.group-actions,
+		.variable-actions {
+			display: inline-flex;
+			align-items: center;
+			justify-content: flex-end;
+			gap: 2px;
+		}
+		.group-actions .icon-button,
+		.variable-actions .icon-button {
+			opacity: 0;
+			pointer-events: none;
+			transition: opacity 120ms ease;
+		}
+		.group-header:hover .group-actions .icon-button,
+		.group-header:focus-within .group-actions .icon-button,
+		.group-header.is-selected .group-actions .icon-button,
+		.variable-row:hover .variable-actions .icon-button,
+		.variable-row:focus-within .variable-actions .icon-button,
+		.variable-row.is-selected .variable-actions .icon-button {
+			opacity: 1;
+			pointer-events: auto;
+		}
 		.group-body { display: grid; gap: 6px; }
 		.group-body[hidden] { display: none !important; }
 		.variable-row {
 			display: grid;
-			grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) auto auto auto;
+			grid-template-columns: minmax(72px, max-content) minmax(0, 1fr) auto;
+			grid-template-areas: 'label control actions';
 			align-items: center;
-			gap: 6px;
-			padding: 3px 2px 3px calc(var(--depth, 0) * 12px + 18px);
+			column-gap: 4px;
+			row-gap: 0;
+			padding: 3px 2px 3px calc(var(--depth, 0) * 10px + 12px);
 			border-radius: 8px;
+			position: relative;
 		}
 		.variable-row:hover {
 			background: color-mix(in srgb, var(--vscode-list-hoverBackground) 40%, transparent);
 		}
+		.variable-row.is-selected {
+			background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 20%, transparent);
+		}
+		.variable-row:focus-within {
+			z-index: 2;
+		}
 		.variable-label {
+			grid-area: label;
 			min-width: 0;
 			font-weight: 600;
 			white-space: nowrap;
 			overflow: hidden;
 			text-overflow: ellipsis;
 		}
-		.variable-meta {
-			display: flex;
-			align-items: center;
-			gap: 6px;
-			min-width: 0;
-		}
-		.variable-type {
-			padding: 2px 6px;
-			border-radius: 999px;
-			background: color-mix(in srgb, var(--vscode-badge-background) 70%, transparent);
-			color: var(--vscode-badge-foreground);
-			font-size: 11px;
-			text-transform: lowercase;
-		}
 		.variable-control-wrap {
+			grid-area: control;
 			min-width: 0;
+			min-inline-size: 92px;
+			position: relative;
+			z-index: 1;
+		}
+		.date-control {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: center;
+			gap: 4px;
+		}
+		.date-trigger {
+			flex: 0 0 auto;
+		}
+		.date-picker-proxy {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			opacity: 0;
+			pointer-events: none;
+		}
+		.variable-actions {
+			grid-area: actions;
+			justify-self: end;
+			align-self: center;
+			min-width: max-content;
+			gap: 0;
 		}
 		.variable-input,
 		.variable-select {
 			width: 100%;
+			max-width: 100%;
 			min-width: 0;
+			box-sizing: border-box;
 			padding: 5px 8px;
 			border: 1px solid var(--vscode-input-border, transparent);
 			border-radius: 6px;
@@ -571,8 +708,29 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			color: var(--vscode-input-foreground);
 			font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
 		}
-		.variable-input[type='date'] {
+		.variable-input[type='date'],
+		.variable-input[type='datetime-local'] {
 			color-scheme: light dark;
+			padding-right: 6px;
+		}
+		@media (max-width: 340px) {
+			.variable-row {
+				grid-template-columns: minmax(0, 1fr) auto;
+				grid-template-areas:
+					'label actions'
+					'control control';
+				align-items: start;
+				column-gap: 6px;
+				row-gap: 6px;
+				padding-top: 5px;
+				padding-bottom: 5px;
+			}
+			.variable-control-wrap {
+				min-inline-size: 0;
+			}
+			.variable-actions {
+				align-self: start;
+			}
 		}
 		.variable-input:focus,
 		.variable-select:focus {
@@ -585,6 +743,8 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			gap: 8px;
 			padding: 0 4px;
 			min-height: 30px;
+			width: 100%;
+			flex-wrap: wrap;
 		}
 		.variable-checkbox input {
 			margin: 0;
@@ -609,17 +769,28 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 	</style>
 </head>
 <body>
+	<div class="toolbar">
+		<div class="search-shell">
+			<span class="search-leading" aria-hidden="true">⌕</span>
+			<input id="searchInput" class="search-input" type="search" placeholder="Search variables..." />
+			<button id="clearSearchButton" class="icon-button clear-search-button" type="button" title="Clear search" aria-label="Clear search">×</button>
+		</div>
+	</div>
 	<div id="app"></div>
 	<script nonce="${nonce}">
 		const vscode = acquireVsCodeApi();
 		const app = document.getElementById('app');
-		const state = { tree: undefined, expandedGroups: new Set(), focusName: undefined };
+		const searchInput = document.getElementById('searchInput');
+		const clearSearchButton = document.getElementById('clearSearchButton');
+		const state = { tree: undefined, expandedGroups: new Set(), focusName: undefined, searchQuery: '', selectedGroupPath: undefined, selectedVariableName: undefined };
+		let activePickerInput = undefined;
 		const icons = {
 			add: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
 			folderPlus: '<svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M16 11v6M13 14h6"/></svg>',
 			edit: '<svg viewBox="0 0 24 24"><path d="M4 20l4.5-1 9.25-9.25a1.5 1.5 0 0 0 0-2.12l-1.38-1.38a1.5 1.5 0 0 0-2.12 0L5 15.5 4 20z"/><path d="M13.5 6.5l4 4"/></svg>',
 			delete: '<svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M7 7l1 13h8l1-13"/></svg>',
 			refresh: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 1-2.34-5.66"/><path d="M20 4v7h-7"/></svg>',
+			calendar: '<svg viewBox="0 0 24 24"><path d="M7 3v4M17 3v4M4 9h16"/><rect x="4" y="5" width="16" height="15" rx="2" ry="2"/></svg>',
 			folder: '<svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>',
 			chevronRight: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
 			chevronDown: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>'
@@ -701,16 +872,30 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 				wrap.append(checkbox, label);
 				return wrap;
 			}
-			const input = createInput('variable-value', variable.value, variable.name, type === 'date' ? 'YYYY-MM-DD' : 'value');
-			input.type = type === 'date' ? 'date' : 'text';
+			const input = createInput(
+				'variable-value',
+				variable.value,
+				variable.name,
+				type === 'date' ? 'YYYY-MM-DD' : type === 'datetime' ? 'YYYY-MM-DDTHH:mm' : 'value'
+			);
+			if (type === 'date' || type === 'datetime') {
+				input.type = type === 'date' ? 'date' : 'datetime-local';
+				input.inputMode = 'numeric';
+				input.dataset.valueType = type;
+				input.title = variable.value || '';
+				return input;
+			}
+			input.type = 'text';
+			input.inputMode = 'text';
 			input.title = variable.value || '';
 			return input;
 		}
 
 		function renderVariable(variable, depth) {
 			const row = document.createElement('div');
-			row.className = 'variable-row';
+			row.className = 'variable-row' + (state.selectedVariableName === variable.name ? ' is-selected' : '');
 			row.style.setProperty('--depth', String(depth));
+			row.dataset.variableName = variable.name;
 
 			const label = document.createElement('div');
 			label.className = 'variable-label';
@@ -721,21 +906,14 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			controlWrap.className = 'variable-control-wrap';
 			controlWrap.append(createControl(variable));
 
-			const meta = document.createElement('div');
-			meta.className = 'variable-meta';
-			const typeBadge = document.createElement('span');
-			typeBadge.className = 'variable-type';
-			typeBadge.textContent = variable.type || 'text';
-			meta.append(typeBadge);
-
-			row.append(
-				label,
-				controlWrap,
-				meta,
+			const actions = document.createElement('div');
+			actions.className = 'variable-actions';
+			actions.append(
 				button('advanced-edit-variable', 'Edit variable', icons.edit, { name: variable.name }),
 				button('delete-variable', 'Remove variable', icons.delete, { name: variable.name })
 			);
 
+			row.append(label, controlWrap, actions);
 			row.title = (variable.name || '') + ' = ' + (variable.value || '');
 
 			return row;
@@ -746,7 +924,7 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			section.className = 'group';
 
 			const header = document.createElement('div');
-			header.className = 'group-header';
+			header.className = 'group-header' + (state.selectedGroupPath === node.path ? ' is-selected' : '');
 			header.style.setProperty('--depth', String(depth));
 			header.dataset.path = node.path;
 
@@ -771,12 +949,15 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			spacer.className = 'spacer';
 			header.append(spacer);
 
-			header.append(
+			const actions = document.createElement('div');
+			actions.className = 'group-actions';
+			actions.append(
 				button('add-variable', 'Add variable', icons.add, { path: node.path }),
 				button('add-folder', 'Add subfolder', icons.folderPlus, { path: node.path }),
 				button('rename-folder', 'Rename folder', icons.edit, { path: node.path }),
 				button('delete-folder', 'Delete folder', icons.delete, { path: node.path })
 			);
+			header.append(actions);
 
 			const body = document.createElement('div');
 			body.className = 'group-body';
@@ -794,7 +975,32 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			return section;
 		}
 
-		function render() {
+		function matchesVariable(node, query) {
+			const text = [node.name, node.value, node.group, node.description, ...(node.options || [])]
+				.filter(Boolean)
+				.join(' ')
+				.toLowerCase();
+			return text.includes(query);
+		}
+
+		function filterGroup(node, query) {
+			const groupMatch = ((node.label || '') + ' ' + (node.path || '')).toLowerCase().includes(query);
+			if (groupMatch) {
+				return node;
+			}
+			const groups = (node.groups || [])
+				.map((group) => filterGroup(group, query))
+				.filter(Boolean);
+			const variables = (node.variables || []).filter((variable) => matchesVariable(variable, query));
+			if (groups.length === 0 && variables.length === 0) {
+				return undefined;
+			}
+			return { ...node, groups, variables };
+		}
+
+		function render(preserveScroll = true) {
+			const scrollingElement = document.scrollingElement || document.documentElement;
+			const previousScrollTop = preserveScroll ? scrollingElement.scrollTop : 0;
 			app.replaceChildren();
 			if (!state.tree || !Array.isArray(state.tree.groups) || state.tree.groups.length === 0) {
 				const empty = document.createElement('div');
@@ -803,8 +1009,24 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 				app.append(empty);
 				return;
 			}
-			for (const group of state.tree.groups) {
+			const normalizedQuery = state.searchQuery.trim().toLowerCase();
+			const groups = normalizedQuery
+				? state.tree.groups.map((group) => filterGroup(group, normalizedQuery)).filter(Boolean)
+				: state.tree.groups;
+			if (!Array.isArray(groups) || groups.length === 0) {
+				const empty = document.createElement('div');
+				empty.className = 'empty-state';
+				empty.textContent = 'No variables match the current search.';
+				app.append(empty);
+				return;
+			}
+			for (const group of groups) {
 				app.append(renderGroup(group, 0));
+			}
+			if (preserveScroll) {
+				requestAnimationFrame(() => {
+					scrollingElement.scrollTop = previousScrollTop;
+				});
 			}
 		}
 
@@ -816,6 +1038,11 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 
 			const target = origin.closest('button[data-action]');
 			if (target) {
+				const row = target.closest('.variable-row');
+				if (row instanceof HTMLElement && row.dataset.variableName) {
+					state.selectedVariableName = row.dataset.variableName;
+					state.selectedGroupPath = undefined;
+				}
 				switch (target.dataset.action) {
 				case 'refresh':
 					vscode.postMessage({ type: 'refresh' });
@@ -848,9 +1075,29 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 				}
 			}
 
+			if (
+				origin instanceof HTMLInputElement
+				|| origin instanceof HTMLSelectElement
+				|| origin.closest('.variable-checkbox')
+				|| origin.closest('.variable-control-wrap')
+			) {
+				return;
+			}
+
+			const labelTarget = origin.closest('.variable-label');
+			const row = origin.closest('.variable-row');
+			if (labelTarget && row instanceof HTMLElement && row.dataset.variableName) {
+				state.selectedVariableName = row.dataset.variableName;
+				state.selectedGroupPath = undefined;
+				render();
+				return;
+			}
+
 			const header = origin.closest('.group-header');
 			if (header instanceof HTMLElement && header.dataset.path) {
 				const path = header.dataset.path;
+				state.selectedGroupPath = path;
+				state.selectedVariableName = undefined;
 				const expanded = state.expandedGroups.has(path);
 				vscode.postMessage({
 					type: 'toggleGroup',
@@ -866,30 +1113,17 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			if (!(target instanceof HTMLInputElement)) {
 				return;
 			}
-			if (!target.classList.contains('variable-value') || target.type !== 'text') {
+			if (!target.classList.contains('variable-value')) {
 				return;
 			}
-			postValue(target.dataset.originalName, target.value);
+			if (target.type === 'text' || target.type === 'date' || target.type === 'datetime-local') {
+				postValue(target.dataset.originalName, target.value);
+			}
 		}, true);
-
-		app.addEventListener('input', (event) => {
-			const target = event.target;
-			if (!(target instanceof HTMLInputElement)) {
-				return;
-			}
-			if (!target.classList.contains('variable-value') || target.type !== 'text') {
-				return;
-			}
-			postValue(target.dataset.originalName, target.value);
-		});
 
 		app.addEventListener('change', (event) => {
 			const target = event.target;
 			if (target instanceof HTMLSelectElement && target.classList.contains('variable-value')) {
-				postValue(target.dataset.originalName, target.value);
-				return;
-			}
-			if (target instanceof HTMLInputElement && target.classList.contains('variable-value') && target.type === 'date') {
 				postValue(target.dataset.originalName, target.value);
 				return;
 			}
@@ -915,14 +1149,41 @@ class VariablesWebviewProvider implements vscode.WebviewViewProvider {
 			}
 		});
 
+		if (searchInput instanceof HTMLInputElement) {
+			searchInput.addEventListener('input', () => {
+				state.searchQuery = searchInput.value || '';
+				render();
+			});
+		}
+		if (clearSearchButton instanceof HTMLButtonElement) {
+			clearSearchButton.addEventListener('click', () => {
+				state.searchQuery = '';
+				if (searchInput instanceof HTMLInputElement) {
+					searchInput.value = '';
+					searchInput.focus();
+				}
+				render();
+			});
+		}
+
 		window.addEventListener('message', (event) => {
-			if (!event.data || event.data.type !== 'state') {
+			if (!event.data) {
+				return;
+			}
+			if (event.data.type === 'focusSearch') {
+				if (searchInput instanceof HTMLInputElement) {
+					searchInput.focus();
+					searchInput.select();
+				}
+				return;
+			}
+			if (event.data.type !== 'state') {
 				return;
 			}
 			state.tree = event.data.payload.tree;
 			state.expandedGroups = new Set(event.data.payload.expandedGroups || []);
 			state.focusName = event.data.payload.focusName;
-			render();
+			render(!state.focusName);
 			if (state.focusName) {
 				const input = app.querySelector('[data-original-name="' + CSS.escape(state.focusName) + '"]');
 				if (input instanceof HTMLInputElement || input instanceof HTMLSelectElement) {
@@ -968,9 +1229,8 @@ function getVariables(): VariableDefinition[] {
 	return getConfig().get<VariableDefinition[]>('variables', []).map(normalizeVariable);
 }
 
-function getVariableFolders(): string[] {
-	const folders = getConfig().get<string[]>('variableFolders', []);
-	const normalized = folders
+function normalizeFolderPaths(paths?: readonly string[]): string[] {
+	const normalized = (paths ?? [])
 		.map((folder) => normalizeGroupPath(folder))
 		.filter((folder): folder is string => Boolean(folder));
 	return Array.from(new Set(normalized));
@@ -1009,7 +1269,7 @@ function getUniqueVariableName(variables: VariableDefinition[], baseName = 'name
 }
 
 function isVariableType(value: string | undefined): value is VariableType {
-	return value === 'text' || value === 'select' || value === 'checkbox' || value === 'date';
+	return value === 'text' || value === 'select' || value === 'checkbox' || value === 'date' || value === 'datetime';
 }
 
 function normalizeVariableOptions(type: VariableType, options?: string[], value?: string): string[] | undefined {
@@ -1034,10 +1294,26 @@ function normalizeVariableOptions(type: VariableType, options?: string[], value?
 
 function normalizeDateValue(value?: string): string {
 	const trimmed = value?.trim() ?? '';
+	if (!trimmed) {
+		return new Date().toISOString().slice(0, 10);
+	}
 	if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
 		return trimmed;
 	}
-	return new Date().toISOString().slice(0, 10);
+	return trimmed;
+}
+
+function normalizeDateTimeValue(value?: string): string {
+	const trimmed = value?.trim() ?? '';
+	if (!trimmed) {
+		const now = new Date();
+		const pad = (input: number): string => input.toString().padStart(2, '0');
+		return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+	}
+	if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(trimmed)) {
+		return trimmed;
+	}
+	return trimmed;
 }
 
 function normalizeVariableValue(type: VariableType, value?: string, options?: string[]): string {
@@ -1053,6 +1329,9 @@ function normalizeVariableValue(type: VariableType, value?: string, options?: st
 	}
 	if (type === 'date') {
 		return normalizeDateValue(trimmed);
+	}
+	if (type === 'datetime') {
+		return normalizeDateTimeValue(trimmed);
 	}
 	return trimmed;
 }
@@ -1120,6 +1399,31 @@ function buildCommandTree(commands: CommandDefinition[], sortAlphabetically: boo
 		}
 	}
 	return root;
+}
+
+function filterCommandTree(node: CommandGroupNode, query: string): CommandGroupNode {
+	const normalizedQuery = query.trim().toLowerCase();
+	if (!normalizedQuery) {
+		return node;
+	}
+
+	const matchesGroup = `${node.label} ${node.path}`.toLowerCase().includes(normalizedQuery);
+	if (matchesGroup && node.path) {
+		return node;
+	}
+
+	const groups = node.groups
+		.map((child) => filterCommandTree(child, normalizedQuery))
+		.filter((child) => {
+			const childMatchesGroup = `${child.label} ${child.path}`.toLowerCase().includes(normalizedQuery);
+			return childMatchesGroup || child.groups.length > 0 || child.commands.length > 0;
+		});
+	const commands = node.commands.filter((command) =>
+		`${command.title} ${command.command} ${command.group ?? ''} ${command.description ?? ''}`
+			.toLowerCase()
+			.includes(normalizedQuery)
+	);
+	return { ...node, groups, commands };
 }
 
 function buildVariableTree(
@@ -1218,6 +1522,41 @@ async function runCommand(definition: CommandDefinition): Promise<void> {
 	terminal.sendText(result, definition.sendNewLine ?? true);
 }
 
+async function showQuickPickWithDefault<T extends vscode.QuickPickItem>(
+	items: readonly T[],
+	options: vscode.QuickPickOptions,
+	isDefaultItem?: (item: T) => boolean
+): Promise<T | undefined> {
+	const quickPick = vscode.window.createQuickPick<T>();
+	quickPick.items = items;
+	quickPick.title = options.title;
+	quickPick.placeholder = options.placeHolder;
+	quickPick.ignoreFocusOut = options.ignoreFocusOut ?? false;
+	quickPick.matchOnDescription = options.matchOnDescription ?? false;
+	quickPick.matchOnDetail = options.matchOnDetail ?? false;
+
+	const defaultItem = isDefaultItem ? items.find(isDefaultItem) : undefined;
+	if (defaultItem) {
+		quickPick.activeItems = [defaultItem];
+	}
+
+	return await new Promise<T | undefined>((resolve) => {
+		let done = false;
+		quickPick.onDidAccept(() => {
+			done = true;
+			resolve(quickPick.selectedItems[0] ?? quickPick.activeItems[0]);
+			quickPick.hide();
+		});
+		quickPick.onDidHide(() => {
+			quickPick.dispose();
+			if (!done) {
+				resolve(undefined);
+			}
+		});
+		quickPick.show();
+	});
+}
+
 async function promptForVariable(existing?: VariableDefinition, defaultGroup?: string): Promise<VariableDefinition | undefined> {
 	const name = await vscode.window.showInputBox({
 		prompt: 'Variable name (used as ${name})',
@@ -1242,15 +1581,26 @@ async function promptForVariable(existing?: VariableDefinition, defaultGroup?: s
 	if (group === undefined) {
 		return undefined;
 	}
-	const typePick = await vscode.window.showQuickPick([
+	const currentType = existing?.type ?? 'text';
+	const typeOptions: Array<{ label: string; value: string; description?: string }> = [
 		{ label: 'Text', value: 'text' },
 		{ label: 'Select', value: 'select' },
 		{ label: 'Checkbox', value: 'checkbox' },
-		{ label: 'Date', value: 'date' }
-	], {
+		{ label: 'Date', value: 'date' },
+		{ label: 'Date Time', value: 'datetime' }
+	];
+	const currentTypeIndex = typeOptions.findIndex((item) => item.value === currentType);
+	if (currentTypeIndex > 0) {
+		const [currentItem] = typeOptions.splice(currentTypeIndex, 1);
+		currentItem.description = 'Current';
+		typeOptions.unshift(currentItem);
+	} else if (typeOptions[0]) {
+		typeOptions[0].description = 'Current';
+	}
+	const typePick = await showQuickPickWithDefault(typeOptions, {
 		placeHolder: 'Choose the variable type',
 		title: 'Variable Type'
-	});
+	}, (item) => item.value === currentType);
 	if (!typePick) {
 		return undefined;
 	}
@@ -1288,12 +1638,22 @@ async function promptForVariable(existing?: VariableDefinition, defaultGroup?: s
 			return undefined;
 		}
 		options = optionText.split(',').map((option) => option.trim()).filter((option) => option.length > 0);
-		const valuePick = await vscode.window.showQuickPick(
-			options.map((option) => ({ label: option })),
+		const valueOptions = options.map((option) => ({
+			label: option,
+			description: option === existing?.value ? 'Current' : undefined
+		}));
+		const selectedValueIndex = valueOptions.findIndex((option) => option.label === existing?.value);
+		if (selectedValueIndex > 0) {
+			const [currentValue] = valueOptions.splice(selectedValueIndex, 1);
+			valueOptions.unshift(currentValue);
+		}
+		const valuePick = await showQuickPickWithDefault(
+			valueOptions,
 			{
 				placeHolder: 'Choose the current value',
 				title: 'Current Variable Value'
-			}
+			},
+			(item) => item.label === existing?.value
 		);
 		if (!valuePick) {
 			return undefined;
@@ -1310,6 +1670,17 @@ async function promptForVariable(existing?: VariableDefinition, defaultGroup?: s
 			return undefined;
 		}
 		value = normalizeDateValue(dateValue);
+	}
+	if (type === 'datetime') {
+		const dateTimeValue = await vscode.window.showInputBox({
+			prompt: 'Date and time value in YYYY-MM-DDTHH:mm format',
+			value: existing?.type === 'datetime' ? normalizeDateTimeValue(existing.value) : normalizeDateTimeValue(),
+			validateInput: (raw) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw.trim()) ? undefined : 'Use YYYY-MM-DDTHH:mm format.'
+		});
+		if (dateTimeValue === undefined) {
+			return undefined;
+		}
+		value = normalizeDateTimeValue(dateTimeValue);
 	}
 	return {
 		name: name.trim(),
@@ -1472,12 +1843,36 @@ function createNonce(): string {
 export function activate(context: vscode.ExtensionContext) {
 	const expandedCommandGroups = new Set<string>(context.globalState.get<string[]>('commandTT.expandedGroups', []));
 	const expandedVariableGroups = new Set<string>(context.globalState.get<string[]>('commandTT.expandedVariableGroups', []));
+	const storedVariableFolders = new Set<string>(normalizeFolderPaths(
+		context.globalState.get<string[]>('commandTT.variableFolders', [])
+	));
+	for (const variable of getVariables()) {
+		if (variable.group) {
+			storedVariableFolders.add(variable.group);
+		}
+	}
+	const legacyVariableFolders = normalizeFolderPaths(getConfig().get<string[]>('variableFolders', []));
+	for (const folder of legacyVariableFolders) {
+		storedVariableFolders.add(folder);
+	}
 	const persistExpandedGroups = (): void => {
 		void context.globalState.update('commandTT.expandedGroups', Array.from(expandedCommandGroups));
 		void context.globalState.update('commandTT.expandedVariableGroups', Array.from(expandedVariableGroups));
 	};
+	const persistVariableFolders = (): void => {
+		void context.globalState.update('commandTT.variableFolders', Array.from(storedVariableFolders));
+	};
+	if (legacyVariableFolders.length > 0) {
+		persistVariableFolders();
+		void getConfig().update('variableFolders', undefined, vscode.ConfigurationTarget.Global);
+	}
 	const commandsProvider = new CommandsProvider(expandedCommandGroups);
-	const variablesProvider = new VariablesWebviewProvider(expandedVariableGroups, persistExpandedGroups);
+	const variablesProvider = new VariablesWebviewProvider(
+		expandedVariableGroups,
+		persistExpandedGroups,
+		storedVariableFolders,
+		persistVariableFolders
+	);
 	const commandsTreeView = vscode.window.createTreeView(COMMANDS_VIEW_ID, { treeDataProvider: commandsProvider });
 	context.subscriptions.push(
 		commandsTreeView,
@@ -1491,7 +1886,25 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		}),
 		vscode.commands.registerCommand('commandTT.refreshVariables', () => variablesProvider.refresh()),
-		vscode.commands.registerCommand('commandTT.refreshCommands', () => commandsProvider.refresh()),
+		vscode.commands.registerCommand('commandTT.refreshCommands', () => {
+			commandsProvider.setSearchQuery('');
+			commandsTreeView.message = undefined;
+		}),
+		vscode.commands.registerCommand('commandTT.searchVariables', () => variablesProvider.focusSearch()),
+		vscode.commands.registerCommand('commandTT.searchCommands', async () => {
+			const query = await vscode.window.showInputBox({
+				prompt: 'Search commands and folders',
+				placeHolder: 'Filter by title, command text, group, or description. Leave empty to clear.',
+				value: commandsProvider.getSearchQuery()
+			});
+			if (query === undefined) {
+				return;
+			}
+			commandsProvider.setSearchQuery(query);
+			commandsTreeView.message = query.trim()
+				? `Showing results for "${query.trim()}"`
+				: undefined;
+		}),
 		vscode.commands.registerCommand('commandTT.addVariable', async (groupPath?: string) => {
 			await variablesProvider.createVariable(groupPath);
 		}),

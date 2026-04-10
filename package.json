@@ -5,7 +5,7 @@
   "author": "Hector Cordero",
   "description": "Send terminal commands with variables",
   "icon": "resources/marketplace-icon.png",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/kuzho/Command-TT.git"
@@ -145,6 +145,24 @@
           "light": "resources/icons/refresh.light.svg",
           "dark": "resources/icons/refresh.dark.svg"
         }
+      },
+      {
+        "command": "commandTT.searchVariables",
+        "title": "Search Variables",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/search.light.svg",
+          "dark": "resources/icons/search.dark.svg"
+        }
+      },
+      {
+        "command": "commandTT.searchCommands",
+        "title": "Search Commands",
+        "category": "Command TT",
+        "icon": {
+          "light": "resources/icons/search.light.svg",
+          "dark": "resources/icons/search.dark.svg"
+        }
       }
     ],
     "menus": {
@@ -162,6 +180,11 @@
         {
           "command": "commandTT.refreshVariables",
           "when": "view == commandTTVariables",
+          "group": "navigation"
+        },
+        {
+          "command": "commandTT.searchCommands",
+          "when": "view == commandTTCommands",
           "group": "navigation"
         },
         {
@@ -248,7 +271,7 @@
         "commandTT.variables": {
           "type": "array",
           "default": [],
-          "description": "List of variables available for substitution.",
+          "description": "List of variables available for substitution. Use `group` to organize them into folders.",
           "items": {
             "type": "object",
             "properties": {
@@ -264,7 +287,8 @@
                   "text",
                   "select",
                   "checkbox",
-                  "date"
+                  "date",
+                  "datetime"
                 ],
                 "description": "Variable control type shown in the Variables panel."
               },
@@ -286,14 +310,6 @@
               "name",
               "value"
             ]
-          }
-        },
-        "commandTT.variableFolders": {
-          "type": "array",
-          "default": [],
-          "description": "List of folder paths used by the Variables panel. Use / for nested folders.",
-          "items": {
-            "type": "string"
           }
         },
         "commandTT.commands": {

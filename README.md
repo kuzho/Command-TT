@@ -4,17 +4,18 @@ Send terminal commands with variables from two dedicated panels in VS Code.
 
 ## Features
 
-- Commands panel (shown above Variables) with grouped and nested groups (use /)
-- Variables panel with inline textboxes for `${name}` and value editing
-- Nested variable folders, including empty folders saved in settings
+- Commands panel (shown above Variables) with nested folders using the `group` path
+- Variables panel with inline editing for `text`, `select`, `checkbox`, `date`, and `datetime`
+- Search in both the Variables and Commands views
+- Grouping is driven directly by each item's `group` field — no separate folder setting is needed
 - Run commands by clicking a command item
-- Inline actions to run, edit, and remove items
-- Variable substitution inside commands (ping ${host})
+- Inline actions to run, edit, remove, and organize items
+- Variable substitution inside commands such as `ping ${host}`
 - Friendly error when a variable is missing
-- Per-command icon and per-command iconColor, plus a global default icon color
+- Per-command `icon` / `iconColor`, plus a global default icon color
 - Optional Enter key sending controlled per command
 - Refresh buttons for Commands and Variables
-- All data stored in user settings JSON
+- All data is stored in user settings JSON
 
 ## GIFs
 
@@ -48,38 +49,42 @@ Variables are reusable values that you define once and use in multiple commands.
 
 - Edit variable names and values directly in the Variables panel.
 - The `${` and `}` tokens are fixed in the UI, so you only type the variable name.
-- Use folder buttons in the Variables panel to create nested folders and add variables inside them.
-- Use the pencil icon for advanced editing when you need descriptions or selectable options.
+- Use the folder buttons in the Variables panel or the `group` field to organize nested folders.
+- There is **no separate `commandTT.variableFolders` setting**; folders come from each variable's `group` path.
+- Use the pencil icon for advanced editing when you need to change the type, options, or group.
 
-#### Simple Variables
-A simple variable has a fixed value:
-
+#### Simple Variable
 ```json
 {
   "name": "host",
   "value": "192.168.1.1",
-  "description": "Main server IP address"
+  "type": "text"
 }
 ```
 
 Use in commands: `ping ${host}` or `ssh user@${host}`
 
-#### Select Variables (with Options)
-A select variable lets you choose from multiple predefined options. When you execute a command containing a select variable, a **Quick Pick dialog** appears asking you to select a value.
+#### Variable Types
+- `text`: free text input
+- `select`: dropdown built from `options`
+- `checkbox`: two options used as off/on values
+- `date`: native date picker
+- `datetime`: native date-time picker
+
+Example select variable:
 
 ```json
 {
   "name": "action",
   "value": "start",
+  "type": "select",
   "options": ["start", "stop", "restart"],
-  "description": "Service action"
+  "group": "Ops/Deploy"
 }
 ```
 
-When running a command that includes `${action}`, you'll see a dialog to choose which option to use.
-
 #### Multiple Variables in One Command
-If a command contains multiple variables with options (or a mix of simple and select variables), you'll be prompted for each one in order:
+Commands always use the **current values already set in the Variables panel**.
 
 ```json
 {
@@ -89,17 +94,21 @@ If a command contains multiple variables with options (or a mix of simple and se
 }
 ```
 
-With variables `action: [start, stop, restart]` and `service: [web, api, db]`, executing this command will:
-1. Show Quick Pick for `action` → select value
-2. Show Quick Pick for `service` → select value
-3. Run the final command (e.g., `docker start web`)
+If `action` is `start` and `service` is `web`, the command runs as:
+
+```sh
+docker start web
+```
 
 ## Extension Settings
 
-- `commandTT.sortOrder`: Display order for variables and commands (`"settings"` or `"alphabetical"`). Default: `"settings"` (respects order in settings.json).
+### Main settings you maintain
+- `commandTT.variables`: Array of variable definitions.
+- `commandTT.commands`: Array of command definitions.
+
+### Optional display settings
+- `commandTT.sortOrder`: Display order for variables and commands (`"settings"` or `"alphabetical"`). Default: `"settings"`.
 - `commandTT.commandIconColor`: Theme color id for command icons (default: `terminal.ansiCyan`).
-- `commandTT.variables`: Array of variable definitions (see [Data Format](#data-format)).
-- `commandTT.commands`: Array of command definitions (see [Data Format](#data-format)).
 
 ## Data Format
 
@@ -109,29 +118,20 @@ With variables `action: [start, stop, restart]` and `service: [web, api, db]`, e
 {
   "name": "variableName",
   "value": "defaultValue",
-  "description": "Optional description (shown in tooltip)",
-  "options": ["optional", "list", "of", "values"]
+  "type": "text",
+  "options": ["optional", "list", "of", "values"],
+  "group": "Optional/Group/Path"
 }
 ```
 
 **Fields:**
 - `name` (required): Variable identifier used as `${name}` in commands.
-- `value` (required): Default value or first option if `options` is provided.
-- `description` (optional): Shown in the Variables panel tooltip.
-- `options` (optional): Array of selectable values. If present, creates a select variable that prompts on execute.
+- `value` (required): Current/default value stored for the variable.
+- `type` (optional): One of `text`, `select`, `checkbox`, `date`, or `datetime`.
+- `options` (optional): Used by `select` and `checkbox` variables.
 - `group` (optional): Folder path using `/` for hierarchy.
 
-### Variable Folders
-
-```json
-[
-  "Linux",
-  "Linux/SSH",
-  "Linux/Services"
-]
-```
-
-Store empty folders with `commandTT.variableFolders` when you want the Variables panel to keep folder structure even before adding variables.
+> Folders and subfolders are derived from `group`. There is no separate folders array in settings.
 
 ### Command Definition
 
@@ -160,24 +160,36 @@ Store empty folders with `commandTT.variableFolders` when you want the Variables
 
 Add to your VS Code user **settings.json**:
 
+> Keep your data in `commandTT.variables` and `commandTT.commands`. Use `group` inside each item to create folders and subfolders.
+
 ```json
 "commandTT.variables": [
   {
     "name": "env",
     "value": "dev",
+    "type": "select",
     "options": ["dev", "staging", "prod"],
-    "description": "Deployment environment"
+    "group": "Docker"
   },
   {
     "name": "service",
     "value": "web",
+    "type": "select",
     "options": ["web", "api", "db"],
-    "description": "Docker service name"
+    "group": "Docker"
+  },
+  {
+    "name": "dryRun",
+    "value": "false",
+    "type": "checkbox",
+    "options": ["false", "true"],
+    "group": "Docker"
   },
   {
     "name": "host",
     "value": "localhost",
-    "description": "Target host"
+    "type": "text",
+    "group": "Network"
   }
 ],
 "commandTT.commands": [
@@ -194,6 +206,5 @@ Add to your VS Code user **settings.json**:
     "group": "Network",
     "icon": "cloud"
   }
-],
-"commandTT.sortOrder": "settings"
+]
 ```

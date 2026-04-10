@@ -1,5 +1,22 @@
 # Change Log
 
+## [1.0.1] - 2026-04-10
+
+### Added
+- New `datetime` variable type alongside the existing `text`, `select`, `checkbox`, and `date` options.
+- Search support for both the Variables and Commands views.
+
+### Changed
+- Simplified configuration so grouping is driven directly from `commandTT.commands` and `commandTT.variables` through the `group` path.
+- Refined the Variables panel with inline editing, compact responsive spacing, and hover-based row actions.
+- Improved command-folder creation flow so title-bar folder creation adds a root folder while folder-context actions create subfolders.
+
+### Fixed
+- Command search now keeps only matching branches visible and auto-expands folders that contain results.
+- Refresh in the Commands view now clears any active search filter.
+- Date and datetime variable editing now preserves scroll position and avoids unnecessary refresh while typing or committing values.
+- Edit Variable now defaults to the current variable type and current selected option when reopening an existing variable.
+
 ## [1.0.0] - 2026-03-31
 
 ### Added
