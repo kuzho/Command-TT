@@ -1,5 +1,22 @@
 # Change Log
 
+## [1.0.2] - 2026-09-02
+
+### Added
+- Stable internal IDs for commands and variables, allowing commands to share display titles while preserving reliable edit and delete actions.
+- Guided icon and color selectors in the command editor, with custom codicon and theme color options.
+- Automatic ID generation and duplicate-ID repair for entries added or copied directly in `settings.json`.
+
+### Changed
+- Command TT now preserves the active configuration scope when saving: user, workspace, or workspace-folder settings.
+- Renaming a variable now updates its `${variableName}` references in saved commands.
+- `Ungrouped` is treated as an automatic folder for commands and variables without a `group` value.
+
+### Fixed
+- Ungrouped commands now render correctly in the Commands tree.
+- Deleting a folder now permanently removes all commands or variables it contains, including nested subfolders, after confirmation.
+- Deleting `Ungrouped` now permanently removes all ungrouped commands or variables after confirmation.
+
 ## [1.0.1] - 2026-04-10
 
 ### Added

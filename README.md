@@ -15,7 +15,7 @@ Send terminal commands with variables from two dedicated panels in VS Code.
 - Per-command `icon` / `iconColor`, plus a global default icon color
 - Optional Enter key sending controlled per command
 - Refresh buttons for Commands and Variables
-- All data is stored in user settings JSON
+- All data is stored in VS Code settings JSON, at either user or workspace scope
 
 ## GIFs
 
@@ -42,6 +42,7 @@ Refresh Commands and Variables views.
 - Use `/` in group names to create nested subgroups (example: `Ops/Deploy/Staging`).
 - Commands can reference variables using `${variableName}` syntax.
 - Inline actions: hover over a command to see edit and delete buttons.
+- The command editor includes icon and color selectors with common choices. Select Custom to use any VS Code codicon or theme color id.
 
 ### Variables
 
@@ -106,6 +107,12 @@ docker start web
 - `commandTT.variables`: Array of variable definitions.
 - `commandTT.commands`: Array of command definitions.
 
+### Bulk Editing in Settings
+
+You can add or edit many commands and variables directly in `settings.json` at either user or workspace scope. The extension automatically adds a unique `id` to entries that do not have one and replaces duplicated IDs after a settings change. When copying an entry, remove its `id` or omit it; Command TT will generate a new one.
+
+Commands may share the same `title`. Variable `name` values must remain unique because `${name}` is the reference used by commands. Groups with the same path are shown as one folder.
+
 ### Optional display settings
 - `commandTT.sortOrder`: Display order for variables and commands (`"settings"` or `"alphabetical"`). Default: `"settings"`.
 - `commandTT.commandIconColor`: Theme color id for command icons (default: `terminal.ansiCyan`).
@@ -125,6 +132,7 @@ docker start web
 ```
 
 **Fields:**
+- `id` (managed automatically): Stable internal identifier used to edit, remove, and move the correct variable. Omit it when adding entries manually.
 - `name` (required): Variable identifier used as `${name}` in commands.
 - `value` (required): Current/default value stored for the variable.
 - `type` (optional): One of `text`, `select`, `checkbox`, `date`, or `datetime`.
@@ -148,6 +156,7 @@ docker start web
 ```
 
 **Fields:**
+- `id` (managed automatically): Stable internal identifier used to edit, remove, and move the correct command. Omit it when adding entries manually.
 - `title` (required): Display name in the Commands panel.
 - `command` (required): Actual command text; supports `${variableName}` substitution.
 - `group` (optional): Grouping path using `/` for hierarchy (e.g., `Ops/Network/Monitoring`).
